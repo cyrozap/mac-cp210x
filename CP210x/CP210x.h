@@ -48,8 +48,7 @@ public:
     virtual void stop (IOService *provider);
     virtual void free (void);
 
-    // TODO
-    // virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
+    virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
 
     // IOSerialDriverSync
     virtual IOReturn acquirePort (bool sleep, void *refCon);

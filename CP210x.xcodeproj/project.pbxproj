@@ -19,6 +19,7 @@
 		0559F76F157B10F000A30BF9 /* CP210x.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CP210x.h; sourceTree = "<group>"; };
 		0559F770157B10F000A30BF9 /* CP210x.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CP210x.cpp; sourceTree = "<group>"; };
 		0559F772157B10F000A30BF9 /* CP210x-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "CP210x-Prefix.pch"; sourceTree = "<group>"; };
+		056665F7158EA6210026E6FF /* debug.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = debug.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +71,7 @@
 			children = (
 				0559F76F157B10F000A30BF9 /* CP210x.h */,
 				0559F770157B10F000A30BF9 /* CP210x.cpp */,
+				056665F7158EA6210026E6FF /* debug.h */,
 				0559F76A157B10F000A30BF9 /* Supporting Files */,
 			);
 			path = CP210x;

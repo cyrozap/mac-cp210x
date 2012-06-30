@@ -29,7 +29,9 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/serial/IORS232SerialStreamSync.h>
 #include <IOKit/serial/IOSerialKeys.h>
+
 #include "CP210x.h"
+#include "debug.h"
 
 // Define the superclass
 #define super IOSerialDriverSync
@@ -39,14 +41,14 @@ OSDefineMetaClassAndStructors(coop_plausible_driver_CP210x, super);
 // from IOService base class 
 IOService *coop_plausible_driver_CP210x::probe (IOService *provider, SInt32 *score) {
     IOService *res = super::probe(provider, score);
-    IOLog("IOKitTest::probe\n");
+    LOG_DEBUG("probe\n");
     return res;
 }
 
 // from IOService base class
 bool coop_plausible_driver_CP210x::start (IOService *provider) {
     bool res = super::start(provider);
-    IOLog("IOKitTest::start\n");
+    LOG_DEBUG("start\n");
     
     if (!createSerialStream()) {
         // TODO handle error;
@@ -57,16 +59,45 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
 
 // from IOService base class
 void coop_plausible_driver_CP210x::stop (IOService *provider) {
-    IOLog("IOKitTest::stop\n");
+    LOG_DEBUG("stop\n");
     super::stop(provider);
 }
 
 // from IOService base class
 void coop_plausible_driver_CP210x::free (void) {
-    IOLog("IOKitTest::free\n");
+    LOG_DEBUG("free\n");
     super::free();
 }
 
+// from IOService base class
+IOReturn coop_plausible_driver_CP210x::message(UInt32 type, IOService *provider, void *argument) {
+    // TODO
+
+    switch (type) {
+        case kIOMessageServiceIsTerminated:
+            return kIOReturnSuccess;			
+        case kIOMessageServiceIsSuspended: 	
+            break;			
+        case kIOMessageServiceIsResumed: 	
+            break;			
+        case kIOMessageServiceIsRequestingClose: 
+            break;
+        case kIOMessageServiceWasClosed: 	
+            break;
+        case kIOMessageServiceBusyStateChange: 	
+            break;
+        case kIOUSBMessagePortHasBeenResumed: 	
+            return kIOReturnSuccess;
+        case kIOUSBMessageHubResumePort:
+            break;
+        case kIOUSBMessagePortHasBeenReset:
+            return kIOReturnSuccess;
+        default:
+            break;
+    }
+    
+    return super::message(type, provider, argument);
+}
 
 
 // from IOSerialDriverSync
