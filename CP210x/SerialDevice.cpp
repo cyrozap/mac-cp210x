@@ -37,9 +37,13 @@
 OSDefineMetaClassAndStructors(coop_plausible_CP210x_SerialDevice, super);
 
 /**
+ * Initialize a new IOSerialStreamSync serial device.
  *
+ * @param provider The IOKit provider to which the device should be attached.
+ * @param device The USB device to which the newly initialized serial device will provide access. This is used
+ * to fetch an appropriate device name for the serial device.
  */
-bool coop_plausible_CP210x_SerialDevice::init (IOUSBDevice *device) {
+bool coop_plausible_CP210x_SerialDevice::init (IOService *provider, IOUSBDevice *device) {
     
     if (!super::init())
         return false;
@@ -55,11 +59,8 @@ bool coop_plausible_CP210x_SerialDevice::init (IOUSBDevice *device) {
     if ((result = _stream->init(0, 0)) == false)
         goto finish;
 
-#if 0
-    // TODO
-    if ((result = _stream->attach(this)) == false)
+    if ((result = _stream->attach(provider)) == false)
         goto finish;
-#endif
 
     /*
      * Configure the device node name. We use a fixed base name, and a suffix
@@ -67,20 +68,20 @@ bool coop_plausible_CP210x_SerialDevice::init (IOUSBDevice *device) {
      */
     {
         OSString *suffix = this->getDeviceNameSuffix(device);
+        char dashSuffix[suffix->getLength() + 1 + 1]; // we include room for prepended '-' and terminating NULL
+        snprintf(dashSuffix, sizeof(dashSuffix), "-%s", suffix->getCStringNoCopy());
 
         _stream->setProperty(kIOTTYBaseNameKey, "cp210x");
-        _stream->setProperty(kIOTTYSuffixKey, suffix->getCStringNoCopy());
+        _stream->setProperty(kIOTTYSuffixKey, dashSuffix);
 
         suffix->release();
     }
 
-#if 0
-    // TODO
-    /* Allow matching against our serial nub */
+    /* Register our new IOKit service. */
     _stream->registerService();
-#endif
-    
-    // Fall-through on success
+
+
+    /* Fall-through on success */
 finish:
     if (!result) {
         _stream->release();

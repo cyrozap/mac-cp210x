@@ -35,11 +35,14 @@
 #include <IOKit/usb/IOUSBDevice.h>
 #include <IOKit/usb/IOUSBInterface.h>
 
+#include "SerialDevice.h"
+
 class coop_plausible_driver_CP210x : public IOSerialDriverSync {
     OSDeclareDefaultStructors(coop_plausible_driver_CP210x);
     
 private:
     IOUSBInterface *_provider;
+    coop_plausible_CP210x_SerialDevice *_serialDevice;
 
 public:
     
@@ -70,6 +73,4 @@ public:
     virtual IOReturn dequeueData (UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon);
     
 private:
-    bool fetchDeviceName ();
-    bool createSerialStream ();
 };

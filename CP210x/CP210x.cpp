@@ -29,7 +29,6 @@
 #include <IOKit/IOLib.h>
 
 #include "CP210x.h"
-#include "SerialDevice.h"
 
 #include "debug.h"
 
@@ -62,14 +61,14 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     }
 
     /* Create our child serial stream */
-    if (!createSerialStream()) {
+    _serialDevice = new coop_plausible_CP210x_SerialDevice();
+    if (!_serialDevice->init(this, _provider->GetDevice())) {
         LOG_ERR("Could not create serial stream");
         return false;
     }
     
     LOG_DEBUG("Driver started");
 
-    // TODO missing release
     _provider->retain();
     
     return true;
@@ -77,6 +76,12 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
 
 // from IOService base class
 void coop_plausible_driver_CP210x::stop (IOService *provider) {
+    if (_provider != NULL)
+        _provider->release();
+    
+    if (_serialDevice != NULL)
+        _serialDevice->release();
+
     LOG_DEBUG("stop\n");
     super::stop(provider);
 }
@@ -191,35 +196,3 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
 }
 
 /* Private Methods */
-
-/**
- * Create our IOSerialStreamSync child nub. Returns true on success, or false on failure.
- */
-bool coop_plausible_driver_CP210x::createSerialStream() {
-    IOSerialStreamSync *child;
-    bool result = true;
-    
-    /* Create our child driver */
-    child = new IORS232SerialStreamSync();
-    if (child == NULL)
-        return false;
-
-    /* Initialize and attach */
-    if ((result = child->init(0, 0)) == false)
-        goto finish;
-    
-    if ((result = child->attach(this)) == false)
-        goto finish;
-    
-    /* Configure the device node naming */
-    child->setProperty(kIOTTYBaseNameKey, "cp210x");
-    //child->setProperty(kIOTTYSuffixKey, "TODO");
-    
-    /* Allow matching against our serial nub */
-    child->registerService();
-
-    // Fall-through on success
-finish:
-    child->release();
-    return result;
-}

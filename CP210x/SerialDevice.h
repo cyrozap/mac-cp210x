@@ -49,7 +49,7 @@ private:
 public:
 
     // IOService
-    virtual bool init (IOUSBDevice *device);
+    virtual bool init (IOService *provider, IOUSBDevice *device);
     virtual void free ();
 
 private:
