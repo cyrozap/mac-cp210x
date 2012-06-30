@@ -28,6 +28,7 @@
 
 #include "SerialDevice.h"
 #include "usbdevs.h"
+#include "debug.h"
 
 #include <IOKit/serial/IORS232SerialStreamSync.h>
 #include <IOKit/serial/IOSerialKeys.h>
@@ -41,10 +42,10 @@ OSDefineMetaClassAndStructors(coop_plausible_CP210x_SerialDevice, super);
  * Initialize a new IOSerialStreamSync serial device.
  *
  * @param provider The IOKit provider to which the device should be attached.
- * @param device The USB device to which the newly initialized serial device will provide access. This is used
+ * @param device The USB interface to which the newly initialized serial device will provide access. This is used
  * to fetch an appropriate device name for the serial device.
  */
-bool coop_plausible_CP210x_SerialDevice::init (IOService *provider, IOUSBDevice *device) {
+bool coop_plausible_CP210x_SerialDevice::init (IOService *provider, IOUSBInterface *interface) {
     
     if (!super::init())
         return false;
@@ -68,11 +69,11 @@ bool coop_plausible_CP210x_SerialDevice::init (IOService *provider, IOUSBDevice 
      * based on uniquely identifying data.
      */
     {
-        OSString *suffix = this->getDeviceNameSuffix(device);
+        OSString *suffix = this->getDeviceNameSuffix(interface);
         char dashSuffix[suffix->getLength() + 1 + 1]; // we include room for prepended '-' and terminating NULL
         snprintf(dashSuffix, sizeof(dashSuffix), "-%s", suffix->getCStringNoCopy());
 
-        _stream->setProperty(kIOTTYBaseNameKey, "cp210x");
+        _stream->setProperty(kIOTTYBaseNameKey, "CP210x");
         _stream->setProperty(kIOTTYSuffixKey, dashSuffix);
 
         suffix->release();
@@ -104,7 +105,7 @@ void coop_plausible_CP210x_SerialDevice::free() {
  * a value that will be unique across hardware models while also being constant
  * over time.
  *
- * @param device The CP210x USB device for which a suffix should be derived.
+ * @param interface The CP210x USB interface for which a suffix should be derived.
  *
  * @return Returns a retained device name suffix string. It is the caller's responsibility to release this string.
  *
@@ -115,8 +116,11 @@ void coop_plausible_CP210x_SerialDevice::free() {
  * We attempt to identify this case, and avoid the use of the non-unique serial number
  * as a suffix.
  */
-OSString *coop_plausible_CP210x_SerialDevice::getDeviceNameSuffix (IOUSBDevice *device) {
+OSString *coop_plausible_CP210x_SerialDevice::getDeviceNameSuffix (IOUSBInterface *interface) {
+    OSString *result = NULL;
     UInt8 idx;
+    
+    IOUSBDevice *device = interface->GetDevice();
 
     /* Determine whether the device is using the default vendor/product identifiers. If so, then there's a good
      * chance the EEPROM was not programed. We test for that below. */
@@ -136,25 +140,55 @@ OSString *coop_plausible_CP210x_SerialDevice::getDeviceNameSuffix (IOUSBDevice *
     }
 
     /* First, we try to use the device serial number */
-    idx = device->GetSerialNumberStringIndex();
-    if (idx != 0) {
-        /* 256 is the maximum possible descriptor length */
-        char serialStr[256];
+    if (result == NULL) {
+        idx = device->GetSerialNumberStringIndex();
+        if (idx != 0) {
+            /* 256 is the maximum possible descriptor length */
+            char serialStr[256];
 
-        /* Fetch the serial */
-        IOReturn ret = device->GetStringDescriptor(idx, serialStr, sizeof(serialStr));
-        
-        /* If fetch succeeded and returned a non-empty string ... */
-        if (ret == kIOReturnSuccess && strnlen(serialStr, sizeof(serialStr)) > 0) {
-            /* ... If the default EEPROM IDs were left in place, ensure that the serial number is not also
-             * set to the default value */
-            if (!defaultEEPROMID || strcmp(serialStr, SILABS_DEFAULT_EEPROM_SERIAL) != 0)
-                return OSString::withCString(serialStr);
+            /* Fetch the serial */
+            IOReturn ret = device->GetStringDescriptor(idx, serialStr, sizeof(serialStr));
+            
+            /* If fetch succeeded and returned a non-empty string ... */
+            if (ret == kIOReturnSuccess && strnlen(serialStr, sizeof(serialStr)) > 0) {
+
+                /* ... If the default EEPROM IDs were left in place, ensure that the serial number is not also
+                 * set to the default value */
+                if (!defaultEEPROMID || strcmp(serialStr, SILABS_DEFAULT_EEPROM_SERIAL) != 0)
+                    result = OSString::withCString(serialStr);
+            }
+            
+            /* Otherwise, fall through to the other methods */
         }
-        
-        /* Otherwise, fall through to the other methods */
     }
 
-    // TODO
-    return OSString::withCString("todo");
+    /* Next, try the location id. This is based on the USB toplogy, and should at least remain consistent
+     * if the topology is not changed. */
+    if (result == NULL) {
+        OSNumber *location = OSDynamicCast(OSNumber, device->getProperty(kUSBDevicePropertyLocationID));
+        if (location != NULL) {
+            /* Convert to hex */
+            char locStr[9];
+            snprintf(locStr, sizeof(locStr), "%x", location->unsigned32BitValue());
+            result = OSString::withCString(locStr);
+        }
+    }
+
+    /* Bail out early on error, rather than trying to permute the NULL string below */
+    if (result == NULL) {
+        LOG_ERR("Failed to locate a valid serial number or USB location to use for device node naming");
+        return OSString::withCString("unknown");
+    }
+
+
+    /* Ensure the result is unique in case there's more than one interface on the device. */
+    {
+        char uniqueStr[result->getLength() + 3 + 1]; // strlen, plus uint8_t interface number, plus terminating NULL
+        snprintf(uniqueStr, sizeof(uniqueStr), "%s%x", result->getCStringNoCopy(), (int) interface->GetInterfaceNumber());
+    
+        result->release();
+        result = OSString::withCString(uniqueStr);
+    }
+
+    return result;
 }

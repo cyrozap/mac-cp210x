@@ -62,7 +62,7 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
 
     /* Create our child serial stream */
     _serialDevice = new coop_plausible_CP210x_SerialDevice();
-    if (!_serialDevice->init(this, _provider->GetDevice())) {
+    if (!_serialDevice->init(this, _provider)) {
         LOG_ERR("Could not create serial stream");
         return false;
     }

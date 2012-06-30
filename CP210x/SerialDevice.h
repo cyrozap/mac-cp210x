@@ -31,7 +31,7 @@
 
 #include <libkern/c++/OSContainers.h>
 
-#include <IOKit/usb/IOUSBDevice.h>
+#include <IOKit/usb/IOUSBInterface.h>
 
 #include <IOKit/serial/IOSerialStreamSync.h>
 
@@ -49,11 +49,11 @@ private:
 public:
 
     // IOService
-    virtual bool init (IOService *provider, IOUSBDevice *device);
+    virtual bool init (IOService *provider, IOUSBInterface *interface);
     virtual void free ();
 
 private:
-    OSString *getDeviceNameSuffix (IOUSBDevice *device);
+    OSString *getDeviceNameSuffix (IOUSBInterface *interface);
 };
 
 #endif
