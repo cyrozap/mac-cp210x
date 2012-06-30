@@ -11,21 +11,6 @@
 		0559F771157B10F000A30BF9 /* CP210x.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0559F770157B10F000A30BF9 /* CP210x.cpp */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXBuildRule section */
-		0559F78A157B164F00A30BF9 /* PBXBuildRule */ = {
-			isa = PBXBuildRule;
-			compilerSpec = com.apple.compilers.proxy.script;
-			filePatterns = "*.usbdev";
-			fileType = pattern.proxy;
-			isEditable = 1;
-			outputFiles = (
-				"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/${INPUT_FILE_BASE}.h",
-				"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/${INPUT_FILE_BASE}",
-			);
-			script = "OUTPUT_DIR=\"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/\"\nTEMP_FILE=\"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/${INPUT_FILE_BASE}\"\n\nmkdir -p \"${OUTPUT_DIR}\"\ncp \"${INPUT_FILE_PATH}\" \"${TEMP_FILE}\"\n\npushd \"${OUTPUT_DIR}\" >/dev/null\nawk -f \"${SRCROOT}/CP210x/FreeBSD/sys/tools/usbdevs2h.awk\" \"${TEMP_FILE}\" -h\npopd >/dev/null";
-		};
-/* End PBXBuildRule section */
-
 /* Begin PBXFileReference section */
 		0559F764157B10F000A30BF9 /* CP210x.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CP210x.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		0559F768157B10F000A30BF9 /* Kernel.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Kernel.framework; path = System/Library/Frameworks/Kernel.framework; sourceTree = SDKROOT; };
@@ -124,7 +109,6 @@
 				0559F762157B10F000A30BF9 /* Rez */,
 			);
 			buildRules = (
-				0559F78A157B164F00A30BF9 /* PBXBuildRule */,
 			);
 			dependencies = (
 			);
