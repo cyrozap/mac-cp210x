@@ -35,27 +35,25 @@
 
 #include <IOKit/serial/IOSerialStreamSync.h>
 
-namespace coop_plausible {
-
 /**
  * Manages the IOKit IOSerialStreamSync and its backing
  * device node.
  */
-class SerialDevice : public OSObject {
-    OSDeclareDefaultStructors(SerialDevice);
+class coop_plausible_CP210x_SerialDevice : public OSObject {
+    OSDeclareDefaultStructors(coop_plausible_CP210x_SerialDevice);
 
 private:
+    /** Backing stream sync node */
     IOSerialStreamSync *_stream;
     
 public:
+
+    // IOService
     virtual bool init (IOUSBDevice *device);
     virtual void free ();
 
 private:
     OSString *getDeviceNameSuffix (IOUSBDevice *device);
 };
-
-
-}
 
 #endif

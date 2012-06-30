@@ -31,17 +31,15 @@
 #include <IOKit/serial/IORS232SerialStreamSync.h>
 #include <IOKit/serial/IOSerialKeys.h>
 
-using namespace coop_plausible;
-
 // Define the superclass
 #define super OSObject
 
-OSDefineMetaClassAndStructors(SerialDevice, super);
+OSDefineMetaClassAndStructors(coop_plausible_CP210x_SerialDevice, super);
 
 /**
  *
  */
-bool SerialDevice::init (IOUSBDevice *device) {
+bool coop_plausible_CP210x_SerialDevice::init (IOUSBDevice *device) {
     
     if (!super::init())
         return false;
@@ -92,7 +90,7 @@ finish:
     return result;
 }
 
-void SerialDevice::free() {
+void coop_plausible_CP210x_SerialDevice::free() {
     if (_stream != NULL)
         _stream->release();
     
@@ -115,7 +113,7 @@ void SerialDevice::free() {
  * We attempt to identify this case, and avoid the use of the non-unique serial number
  * as a suffix.
  */
-OSString *SerialDevice::getDeviceNameSuffix (IOUSBDevice *device) {
+OSString *coop_plausible_CP210x_SerialDevice::getDeviceNameSuffix (IOUSBDevice *device) {
     UInt8 idx;
 
     /* First, we try to use the device serial number */
