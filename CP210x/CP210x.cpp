@@ -46,13 +46,15 @@ IOService *coop_plausible_driver_CP210x::probe (IOService *provider, SInt32 *sco
 
 // from IOService base class
 bool coop_plausible_driver_CP210x::start (IOService *provider) {
-    LOG_DEBUG("start");
+    LOG_DEBUG("Driver starting");
 
     if (!super::start(provider)) {
         LOG_ERR("super::start() failed");
         return false;
     }
     
+    _lock = IOLockAlloc();
+
     /* Fetch our USB provider */
     _provider = OSDynamicCast(IOUSBInterface, provider);
     if (_provider == NULL) {
@@ -76,6 +78,13 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
 
 // from IOService base class
 void coop_plausible_driver_CP210x::stop (IOService *provider) {
+    LOG_DEBUG("Driver stopping");
+
+    if (_lock != NULL) {
+        IOLockFree(_lock);
+        _lock = NULL;
+    }
+
     if (_provider != NULL) {
         _provider->release();
         _provider = NULL;
@@ -86,7 +95,7 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
         _serialDevice = NULL;
     }
 
-    LOG_DEBUG("stop\n");
+    LOG_DEBUG("Driver stopped");
     super::stop(provider);
 }
 

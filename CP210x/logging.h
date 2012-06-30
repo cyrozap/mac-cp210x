@@ -48,7 +48,7 @@
 #if CP210x_DEBUG
 
 /** Log a debugging message. */
-#define LOG_DEBUG(fmt,...) CP210x_LOG("[D] " fmt,## __VA_ARGS__)
+#define LOG_DEBUG(fmt,...) CP210x_LOG("[DEBUG] " fmt,## __VA_ARGS__)
 
 #else /* CP210x_DEBUG */
 #define LOG_DEBUG(...) do { } while (0)
