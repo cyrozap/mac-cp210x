@@ -27,8 +27,6 @@
  */
 
 #include <IOKit/IOLib.h>
-#include <IOKit/serial/IORS232SerialStreamSync.h>
-#include <IOKit/serial/IOSerialKeys.h>
 
 #include "CP210x.h"
 #include "debug.h"
@@ -41,20 +39,38 @@ OSDefineMetaClassAndStructors(coop_plausible_driver_CP210x, super);
 // from IOService base class 
 IOService *coop_plausible_driver_CP210x::probe (IOService *provider, SInt32 *score) {
     IOService *res = super::probe(provider, score);
-    LOG_DEBUG("probe\n");
+    LOG_DEBUG("probe");
     return res;
 }
 
 // from IOService base class
 bool coop_plausible_driver_CP210x::start (IOService *provider) {
-    bool res = super::start(provider);
-    LOG_DEBUG("start\n");
-    
-    if (!createSerialStream()) {
-        // TODO handle error;
+    LOG_DEBUG("start");
+
+    if (!super::start(provider)) {
+        LOG_ERR("super::start() failed");
+        return false;
     }
     
-    return res;
+    /* Fetch our USB provider */
+    _provider = OSDynamicCast(IOUSBInterface, provider);
+    if (_provider == NULL) {
+        LOG_ERR("Received invalid provider");
+        return false;
+    }
+
+    /* Create our child serial stream */
+    if (!createSerialStream()) {
+        LOG_ERR("Could not create serial stream");
+        return false;
+    }
+    
+    LOG_DEBUG("Driver started");
+
+    // TODO missing release
+    _provider->retain();
+    
+    return true;
 }
 
 // from IOService base class
@@ -195,7 +211,7 @@ bool coop_plausible_driver_CP210x::createSerialStream() {
     
     /* Configure the device node naming */
     child->setProperty(kIOTTYBaseNameKey, "cp210x");
-    child->setProperty(kIOTTYSuffixKey, "TODO");
+    //child->setProperty(kIOTTYSuffixKey, "TODO");
     
     /* Allow matching against our serial nub */
     child->registerService();

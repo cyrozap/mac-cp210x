@@ -35,9 +35,10 @@
 #define CP210x_DEBUG 1
 
 #define CP210x_LOG(fmt,...) do { \
-    IOLog("CP210x: " fmt,## __VA_ARGS__); \
+    IOLog("CP210x: " fmt "\n",## __VA_ARGS__); \
 } while (0)
 
+#define LOG_ERR(fmt,...) CP210x_LOG("[ERROR] " fmt,## __VA_ARGS__)
 #define LOG_INFO(fmt,...) CP210x_LOG(fmt,## __VA_ARGS__)
 
 #if CP210x_DEBUG
