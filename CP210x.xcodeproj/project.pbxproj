@@ -11,14 +11,29 @@
 		0559F771157B10F000A30BF9 /* CP210x.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0559F770157B10F000A30BF9 /* CP210x.cpp */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXBuildRule section */
+		0559F78A157B164F00A30BF9 /* PBXBuildRule */ = {
+			isa = PBXBuildRule;
+			compilerSpec = com.apple.compilers.proxy.script;
+			filePatterns = "*.usbdev";
+			fileType = pattern.proxy;
+			isEditable = 1;
+			outputFiles = (
+				"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/${INPUT_FILE_BASE}.h",
+				"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/${INPUT_FILE_BASE}",
+			);
+			script = "OUTPUT_DIR=\"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/\"\nTEMP_FILE=\"${SHARED_DERIVED_FILE_DIR}/${CURRENT_ARCH}/${INPUT_FILE_BASE}\"\n\nmkdir -p \"${OUTPUT_DIR}\"\ncp \"${INPUT_FILE_PATH}\" \"${TEMP_FILE}\"\n\npushd \"${OUTPUT_DIR}\" >/dev/null\nawk -f \"${SRCROOT}/CP210x/FreeBSD/sys/tools/usbdevs2h.awk\" \"${TEMP_FILE}\" -h\npopd >/dev/null";
+		};
+/* End PBXBuildRule section */
+
 /* Begin PBXFileReference section */
 		0559F764157B10F000A30BF9 /* CP210x.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CP210x.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		0559F768157B10F000A30BF9 /* Kernel.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Kernel.framework; path = System/Library/Frameworks/Kernel.framework; sourceTree = SDKROOT; };
-		0559F76B157B10F000A30BF9 /* CP210x-Info.plist */ = {isa = PBXFileReference; path = "CP210x-Info.plist"; sourceTree = "<group>"; };
+		0559F76B157B10F000A30BF9 /* CP210x-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "CP210x-Info.plist"; sourceTree = "<group>"; };
 		0559F76D157B10F000A30BF9 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
-		0559F76F157B10F000A30BF9 /* CP210x.h */ = {isa = PBXFileReference; path = CP210x.h; sourceTree = "<group>"; };
+		0559F76F157B10F000A30BF9 /* CP210x.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CP210x.h; sourceTree = "<group>"; };
 		0559F770157B10F000A30BF9 /* CP210x.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CP210x.cpp; sourceTree = "<group>"; };
-		0559F772157B10F000A30BF9 /* CP210x-Prefix.pch */ = {isa = PBXFileReference; path = "CP210x-Prefix.pch"; sourceTree = "<group>"; };
+		0559F772157B10F000A30BF9 /* CP210x-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "CP210x-Prefix.pch"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -109,6 +124,7 @@
 				0559F762157B10F000A30BF9 /* Rez */,
 			);
 			buildRules = (
+				0559F78A157B164F00A30BF9 /* PBXBuildRule */,
 			);
 			dependencies = (
 			);
@@ -238,7 +254,7 @@
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "CP210x/CP210x-Prefix.pch";
-				GCC_VERSION = com.apple.compilers.llvmgcc42;
+				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				INFOPLIST_FILE = "CP210x/CP210x-Info.plist";
 				MODULE_NAME = coop.plausible.CP210x;
 				MODULE_VERSION = 1.0.0d1;
@@ -253,7 +269,7 @@
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "CP210x/CP210x-Prefix.pch";
-				GCC_VERSION = com.apple.compilers.llvmgcc42;
+				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
 				INFOPLIST_FILE = "CP210x/CP210x-Info.plist";
 				MODULE_NAME = coop.plausible.CP210x;
 				MODULE_VERSION = 1.0.0d1;
@@ -281,6 +297,7 @@
 				0559F777157B10F000A30BF9 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
