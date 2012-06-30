@@ -32,7 +32,9 @@
 #include <IOKit/IOLib.h>
 
 /* Define to 0 to disable debug logging */
-#define CP210x_DEBUG 1
+#if DEBUG
+#define CP210x_DEBUG_LOG DEBUG
+#endif /* DEBUG */
 
 /** Log a message. It will be automatically prefixed with the driver name. */
 #define CP210x_LOG(fmt,...) do { \
@@ -45,7 +47,7 @@
 /** Log an informative message. */
 #define LOG_INFO(fmt,...) CP210x_LOG(fmt,## __VA_ARGS__)
 
-#if CP210x_DEBUG
+#if CP210x_DEBUG_LOG
 
 /** Log a debugging message. */
 #define LOG_DEBUG(fmt,...) CP210x_LOG("[DEBUG] " fmt,## __VA_ARGS__)
