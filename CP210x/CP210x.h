@@ -33,7 +33,7 @@
 
 #include <IOKit/usb/USB.h>
 
-class coop_plausible_driver_CP210x : public IOService {
+class coop_plausible_driver_CP210x : public IOSerialStreamSync {
     OSDeclareDefaultStructors(coop_plausible_driver_CP210x);
     
 private:

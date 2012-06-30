@@ -30,11 +30,11 @@
 #include "CP210x.h"
 
 // Define the superclass
-#define super IOService
+#define super IOSerialStreamSync
 
-OSDefineMetaClassAndStructors(coop_plausible_driver_CP210x, IOService);
+OSDefineMetaClassAndStructors(coop_plausible_driver_CP210x, super);
 
-// from IOService base class
+// from IOService base class 
 IOService *coop_plausible_driver_CP210x::probe (IOService *provider, SInt32 *score) {
     IOService *res = super::probe(provider, score);
     IOLog("IOKitTest::probe\n");
