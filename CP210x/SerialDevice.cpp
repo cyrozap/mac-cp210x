@@ -28,7 +28,7 @@
 
 #include "SerialDevice.h"
 #include "usbdevs.h"
-#include "debug.h"
+#include "logging.h"
 
 #include <IOKit/serial/IORS232SerialStreamSync.h>
 #include <IOKit/serial/IOSerialKeys.h>

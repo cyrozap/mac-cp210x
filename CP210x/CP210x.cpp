@@ -30,7 +30,7 @@
 
 #include "CP210x.h"
 
-#include "debug.h"
+#include "logging.h"
 
 // Define the superclass
 #define super IOSerialDriverSync

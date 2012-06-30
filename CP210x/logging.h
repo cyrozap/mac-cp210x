@@ -34,15 +34,20 @@
 /* Define to 0 to disable debug logging */
 #define CP210x_DEBUG 1
 
+/** Log a message. It will be automatically prefixed with the driver name. */
 #define CP210x_LOG(fmt,...) do { \
     IOLog("CP210x: " fmt "\n",## __VA_ARGS__); \
 } while (0)
 
+/** Log an error message. */
 #define LOG_ERR(fmt,...) CP210x_LOG("[ERROR] " fmt,## __VA_ARGS__)
+
+/** Log an informative message. */
 #define LOG_INFO(fmt,...) CP210x_LOG(fmt,## __VA_ARGS__)
 
 #if CP210x_DEBUG
 
+/** Log a debugging message. */
 #define LOG_DEBUG(fmt,...) CP210x_LOG("[D] " fmt,## __VA_ARGS__)
 
 #else /* CP210x_DEBUG */
