@@ -33,16 +33,15 @@
 
 #include <IOKit/usb/USB.h>
 
-class coop_plausible_driver_CP210x : public IOSerialStreamSync {
+class coop_plausible_driver_CP210x : public IOSerialDriverSync {
     OSDeclareDefaultStructors(coop_plausible_driver_CP210x);
     
 private:
-    /** Our published rs232 nub */
-    IORS232SerialStreamSync *nub;
+    bool createSerialStream ();
 
 public:
     
-    // IOKit methods:
+    // IOService
     
 	virtual IOService *probe (IOService *provider, SInt32 *score);
     virtual bool start (IOService *provider);
@@ -51,4 +50,21 @@ public:
 
     // TODO
     // virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
+
+    // IOSerialDriverSync
+    virtual IOReturn acquirePort (bool sleep, void *refCon);
+    virtual IOReturn releasePort (void *refCon);
+
+    virtual UInt32 getState (void *refCon);
+    virtual IOReturn setState (UInt32 state, UInt32 mask, void *refCon);
+    virtual IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon);
+
+    virtual UInt32 nextEvent (void *refCon);
+    virtual IOReturn executeEvent (UInt32 event, UInt32 data, void *refCon);
+    virtual IOReturn requestEvent (UInt32 event, UInt32 *data, void *refCon);
+    virtual IOReturn enqueueEvent (UInt32 event, UInt32 data, bool sleep, void *refCon);
+    virtual IOReturn dequeueEvent (UInt32 *event, UInt32 *data, bool sleep, void *refCon);
+
+    virtual IOReturn enqueueData (UInt8 *buffer, UInt32 size, UInt32 * count, bool sleep, void *refCon);
+    virtual IOReturn dequeueData (UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon);
 };

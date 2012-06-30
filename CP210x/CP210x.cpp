@@ -27,10 +27,12 @@
  */
 
 #include <IOKit/IOLib.h>
+#include <IOKit/serial/IORS232SerialStreamSync.h>
+#include <IOKit/serial/IOSerialKeys.h>
 #include "CP210x.h"
 
 // Define the superclass
-#define super IOSerialStreamSync
+#define super IOSerialDriverSync
 
 OSDefineMetaClassAndStructors(coop_plausible_driver_CP210x, super);
 
@@ -45,6 +47,11 @@ IOService *coop_plausible_driver_CP210x::probe (IOService *provider, SInt32 *sco
 bool coop_plausible_driver_CP210x::start (IOService *provider) {
     bool res = super::start(provider);
     IOLog("IOKitTest::start\n");
+    
+    if (!createSerialStream()) {
+        // TODO handle error;
+    }
+    
     return res;
 }
 
@@ -58,4 +65,112 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
 void coop_plausible_driver_CP210x::free (void) {
     IOLog("IOKitTest::free\n");
     super::free();
+}
+
+
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
+    // TODO
+    return 0;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::setState(UInt32 state, UInt32 mask, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::watchState(UInt32 *state, UInt32 mask, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::enqueueEvent(UInt32 event, UInt32 data, bool sleep, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::dequeueEvent(UInt32 *event, UInt32 *data, bool sleep, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, UInt32 * count, bool sleep, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+// from IOSerialDriverSync
+IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon) {
+    // TODO
+    return kIOReturnOffline;
+}
+
+/* Private Methods */
+
+/**
+ * Create our IOSerialStreamSync child nub. Returns true on success, or false on failure.
+ */
+bool coop_plausible_driver_CP210x::createSerialStream() {
+    IOSerialStreamSync *child;
+    bool result = true;
+    
+    /* Create our child driver */
+    child = new IORS232SerialStreamSync();
+    if (child == NULL)
+        return false;
+
+    /* Initialize and attach */
+    if ((result = child->init(0, 0)) == false)
+        goto finish;
+    
+    if ((result = child->attach(this)) == false)
+        goto finish;
+    
+    /* Configure the device node naming */
+    child->setProperty(kIOTTYBaseNameKey, "cp210x");
+    child->setProperty(kIOTTYSuffixKey, "TODO");
+    
+    /* Allow matching against our serial nub */
+    child->registerService();
+
+    // Fall-through on success
+finish:
+    child->release();
+    return result;
 }
