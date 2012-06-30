@@ -41,7 +41,10 @@ class coop_plausible_driver_CP210x : public IOSerialDriverSync {
     OSDeclareDefaultStructors(coop_plausible_driver_CP210x);
     
 private:
+    /** Backing USB interface provider. */
     IOUSBInterface *_provider;
+
+    /** Our child serial nub. */
     coop_plausible_CP210x_SerialDevice *_serialDevice;
 
 public:

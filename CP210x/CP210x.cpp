@@ -76,11 +76,15 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
 
 // from IOService base class
 void coop_plausible_driver_CP210x::stop (IOService *provider) {
-    if (_provider != NULL)
+    if (_provider != NULL) {
         _provider->release();
+        _provider = NULL;
+    }
     
-    if (_serialDevice != NULL)
+    if (_serialDevice != NULL) {
         _serialDevice->release();
+        _serialDevice = NULL;
+    }
 
     LOG_DEBUG("stop\n");
     super::stop(provider);
