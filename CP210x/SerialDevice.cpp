@@ -27,6 +27,7 @@
  */
 
 #include "SerialDevice.h"
+#include "usbdevs.h"
 
 #include <IOKit/serial/IORS232SerialStreamSync.h>
 #include <IOKit/serial/IOSerialKeys.h>
@@ -117,15 +118,38 @@ void coop_plausible_CP210x_SerialDevice::free() {
 OSString *coop_plausible_CP210x_SerialDevice::getDeviceNameSuffix (IOUSBDevice *device) {
     UInt8 idx;
 
+    /* Determine whether the device is using the default vendor/product identifiers. If so, then there's a good
+     * chance the EEPROM was not programed. We test for that below. */
+    uint16_t prodId = device->GetProductID();
+    uint16_t vendorId = device->GetVendorID();
+    bool defaultEEPROMID = false;
+    for (size_t i = 0; i < coop_plausible_driver_CP210x_default_ids_count; i++) {
+        if (vendorId != coop_plausible_driver_CP210x_default_ids[i].vendor)
+            continue;
+        
+        if (prodId != coop_plausible_driver_CP210x_default_ids[i].product)
+            continue;
+
+        /* Note that default EEPROM identifiers are in use */
+        defaultEEPROMID = true;
+        break;
+    }
+
     /* First, we try to use the device serial number */
     idx = device->GetSerialNumberStringIndex();
     if (idx != 0) {
         /* 256 is the maximum possible descriptor length */
         char serialStr[256];
 
+        /* Fetch the serial */
         IOReturn ret = device->GetStringDescriptor(idx, serialStr, sizeof(serialStr));
+        
+        /* If fetch succeeded and returned a non-empty string ... */
         if (ret == kIOReturnSuccess && strnlen(serialStr, sizeof(serialStr)) > 0) {
-            return OSString::withCString(serialStr);
+            /* ... If the default EEPROM IDs were left in place, ensure that the serial number is not also
+             * set to the default value */
+            if (!defaultEEPROMID || strcmp(serialStr, SILABS_DEFAULT_EEPROM_SERIAL) != 0)
+                return OSString::withCString(serialStr);
         }
         
         /* Otherwise, fall through to the other methods */
