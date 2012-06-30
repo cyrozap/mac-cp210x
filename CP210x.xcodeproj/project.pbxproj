@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0559F76E157B10F000A30BF9 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 0559F76C157B10F000A30BF9 /* InfoPlist.strings */; };
 		0559F771157B10F000A30BF9 /* CP210x.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0559F770157B10F000A30BF9 /* CP210x.cpp */; };
+		05A9684E1597921000C284A3 /* SerialDevice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 05A9684D1597921000C284A3 /* SerialDevice.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -20,6 +21,8 @@
 		0559F770157B10F000A30BF9 /* CP210x.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = CP210x.cpp; sourceTree = "<group>"; };
 		0559F772157B10F000A30BF9 /* CP210x-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "CP210x-Prefix.pch"; sourceTree = "<group>"; };
 		056665F7158EA6210026E6FF /* debug.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = debug.h; sourceTree = "<group>"; };
+		05A9684D1597921000C284A3 /* SerialDevice.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SerialDevice.cpp; sourceTree = "<group>"; };
+		05A9684F1597921D00C284A3 /* SerialDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SerialDevice.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,6 +74,8 @@
 			children = (
 				0559F76F157B10F000A30BF9 /* CP210x.h */,
 				0559F770157B10F000A30BF9 /* CP210x.cpp */,
+				05A9684F1597921D00C284A3 /* SerialDevice.h */,
+				05A9684D1597921000C284A3 /* SerialDevice.cpp */,
 				056665F7158EA6210026E6FF /* debug.h */,
 				0559F76A157B10F000A30BF9 /* Supporting Files */,
 			);
@@ -172,6 +177,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0559F771157B10F000A30BF9 /* CP210x.cpp in Sources */,
+				05A9684E1597921000C284A3 /* SerialDevice.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

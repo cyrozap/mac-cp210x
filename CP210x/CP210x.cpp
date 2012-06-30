@@ -29,6 +29,8 @@
 #include <IOKit/IOLib.h>
 
 #include "CP210x.h"
+#include "SerialDevice.h"
+
 #include "debug.h"
 
 // Define the superclass
