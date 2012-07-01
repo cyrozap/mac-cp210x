@@ -1,6 +1,11 @@
 /*
  * Author: Landon Fuller <landonf@plausible.coop>
  *
+ * Information on interfacing with the CP210x chipset was derived
+ * from the FreeBSD uslcom(4) driver from FreeBSD 9.0. The uslcom(4)
+ * driver was originally written by Johnathan Gray <jsg@openbsd.org>
+ * for OpenBSD.
+ *
  * Copyright (c) 2012 Plausible Labs Cooperative, Inc.
  * All rights reserved.
  *
