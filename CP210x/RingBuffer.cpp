@@ -202,7 +202,8 @@ void coop_plausible_CP210x_RingBuffer_tests () {
     assertEquals(rbuf->getLength(), 0, "Buffer should be empty");
 
 cleanup:
-    rbuf->release();
+    if (rbuf != NULL)
+        rbuf->release();
 }
 
 #endif /* DEBUG */
