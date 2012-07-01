@@ -78,6 +78,7 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     /* Run the debug build unit tests */
     LOG_DEBUG("Running tests");
     coop_plausible_CP210x_RingBuffer_tests();
+    LOG_DEBUG("Tests complete");
 #endif
 
     return true;

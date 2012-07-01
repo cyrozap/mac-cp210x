@@ -49,7 +49,10 @@ private:
     uint8_t *_buf;
     
     /** Position of first readable element */
-    size_t _start;
+    size_t _readPos;
+    
+    /** Position of the first writable element */
+    size_t _writePos;
     
     /** Length of available bytes */
     size_t _length;
@@ -61,6 +64,9 @@ public:
 
     size_t write (const void *buf, size_t len);
     size_t read (void *buf, size_t nbyte);
+
+    size_t getCapacity ();
+    size_t getLength ();
 };
 
 #if DEBUG
