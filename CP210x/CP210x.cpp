@@ -29,6 +29,7 @@
 #include <IOKit/IOLib.h>
 
 #include "CP210x.h"
+#include "RingBuffer.h"
 
 #include "logging.h"
 
@@ -72,7 +73,13 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     LOG_DEBUG("Driver started");
 
     _provider->retain();
-    
+
+#if DEBUG
+    /* Run the debug build unit tests */
+    LOG_DEBUG("Running tests");
+    coop_plausible_CP210x_RingBuffer_tests();
+#endif
+
     return true;
 }
 

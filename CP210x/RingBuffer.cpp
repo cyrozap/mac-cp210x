@@ -28,8 +28,66 @@
 
 #include "RingBuffer.h"
 
-
 // Define the superclass
 #define super OSObject
 
 OSDefineMetaClassAndStructors(coop_plausible_CP210x_RingBuffer, super);
+
+/**
+ * Initialize a new ring buffer instance.
+ *
+ * @param capacity Total buffer capacity to be allocated, in bytes.
+ */
+bool coop_plausible_CP210x_RingBuffer::init (vm_size_t capacity) {
+    _buf = (uint8_t *) IOMalloc(capacity);
+
+    _capacity = capacity;
+    _start = 0;
+    _length = 0;
+
+    return true;
+}
+
+/**
+ * Read up to @a nbyte from the buffer into @a buf. The actual number of bytes
+ * read will be returned, and will be 0 if the buffer is empty.
+ */
+size_t coop_plausible_CP210x_RingBuffer::read (void *buf, size_t nbyte) {
+    return 0;
+}
+
+/**
+ * Write up to @a len bytes from @a buf to the buffer. The number of bytes
+ * written will be returned. If the buffer is full, 0 bytes will be written.
+ */
+size_t coop_plausible_CP210x_RingBuffer::write (const void *buf, size_t len) {
+    return 0;
+}
+
+void coop_plausible_CP210x_RingBuffer::free () {
+    IOFree(_buf, _capacity);
+
+    super::free();
+}
+
+#if DEBUG
+
+#define assertTrue(expr, message, ...) do { \
+    if (!expr) { \
+        IOLog("%s: " # expr " is false: " message "\n", __FUNCTION__, ## __VA_ARGS__); \
+        return; \
+    } \
+} while (0);
+
+#define assertNotNull(expr, message, ...) assertTrue(expr != NULL, message, ## __VA_ARGS__)
+
+void coop_plausible_CP210x_RingBuffer_tests () {
+    coop_plausible_CP210x_RingBuffer *rbuf = new coop_plausible_CP210x_RingBuffer();
+    assertNotNull(rbuf, "Failed to create ring buffer");
+
+    assertTrue(rbuf->init(2), "Failed to initialize ring buffer");
+
+    rbuf->release();
+}
+
+#endif /* DEBUG */

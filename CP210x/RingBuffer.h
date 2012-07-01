@@ -34,18 +34,37 @@
 
 /**
  * Generic data ring buffer.
+ *
+ * This data structure provides no internal locking and must not be concurrently modified
+ * by multiple threads.
  */
 class coop_plausible_CP210x_RingBuffer : public OSObject {
     OSDeclareDefaultStructors(coop_plausible_CP210x_RingBuffer);
     
 private:
+    /** Total buffer capacity */
+    size_t _capacity;
+
+    /** Backing buffer. */
+    uint8_t *_buf;
+    
+    /** Position of first readable element */
+    size_t _start;
+    
+    /** Length of available bytes */
+    size_t _length;
     
 public:
 
-    virtual bool init (vm_size_t size);
+    virtual bool init (vm_size_t capacity);
     virtual void free ();
-    
-private:
+
+    size_t write (const void *buf, size_t len);
+    size_t read (void *buf, size_t nbyte);
 };
+
+#if DEBUG
+extern void coop_plausible_CP210x_RingBuffer_tests ();
+#endif
 
 #endif
