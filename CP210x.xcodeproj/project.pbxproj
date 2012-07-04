@@ -15,6 +15,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0517A71715A4D8D100B4E893 /* CP210xConfig.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CP210xConfig.h; sourceTree = "<group>"; };
 		0522F06F159EB784007B5202 /* usbdevs.h */ = {isa = PBXFileReference; indentWidth = 3; lastKnownFileType = sourcecode.c.h; path = usbdevs.h; sourceTree = "<group>"; };
 		0522F071159EB791007B5202 /* usbdevs.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = usbdevs.c; sourceTree = "<group>"; };
 		0522F07C159FAF9D007B5202 /* RingBuffer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RingBuffer.cpp; sourceTree = "<group>"; };
@@ -89,6 +90,7 @@
 			children = (
 				0559F76F157B10F000A30BF9 /* CP210x.h */,
 				0559F770157B10F000A30BF9 /* CP210x.cpp */,
+				0517A71715A4D8D100B4E893 /* CP210xConfig.h */,
 				05A9684F1597921D00C284A3 /* SerialDevice.h */,
 				05A9684D1597921000C284A3 /* SerialDevice.cpp */,
 				0522F06F159EB784007B5202 /* usbdevs.h */,
