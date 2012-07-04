@@ -152,19 +152,28 @@ IOReturn coop_plausible_driver_CP210x::message(UInt32 type, IOService *provider,
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
-    IOUSBDevRequest req;
-    req.bmRequestType = USLCOM_WRITE;
-    req.bRequest = USLCOM_UART;
-    req.wValue = USLCOM_UART_ENABLE;
-    req.wIndex = USLCOM_PORT_NO;
-    req.wLength = 0;
+    IOLockLock(_lock); {
+        /* Check current state */
+        // TODO
+    
+        /* Enable the UART */
+        IOUSBDevRequest req;
+        req.bmRequestType = USLCOM_WRITE;
+        req.bRequest = USLCOM_UART;
+        req.wValue = USLCOM_UART_ENABLE;
+        req.wIndex = USLCOM_PORT_NO;
+        req.wLength = 0;
 
-    LOG_DEBUG("Enabling UART");
-    IOReturn irt = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
-    if (irt != kIOReturnSuccess) {
-        LOG_ERR("USLCOM_UART_ENABLE failed: %d", irt);
-        return kIOReturnOffline;
+        LOG_DEBUG("Enabling UART");
+        IOReturn irt = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+        if (irt != kIOReturnSuccess) {
+            LOG_ERR("USLCOM_UART_ENABLE failed: %d", irt);
+
+            IOLockUnlock(_lock);
+            return kIOReturnOffline;
+        }
     }
+    IOLockUnlock(_lock);
 
     // TODO
     return kIOReturnSuccess;
@@ -172,19 +181,27 @@ IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
-    IOUSBDevRequest req;
-    req.bmRequestType = USLCOM_WRITE;
-    req.bRequest = USLCOM_UART;
-    req.wValue = USLCOM_UART_DISABLE;
-    req.wIndex = USLCOM_PORT_NO;
-    req.wLength = 0;
+    IOLockLock(_lock); {
+        /* Validate current state */
 
-    LOG_DEBUG("Disabling UART");
-    IOReturn irt = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
-    if (irt != kIOReturnSuccess) {
-        LOG_ERR("USLCOM_UART_DISABLE failed: %d", irt);
-        return kIOReturnOffline;
+        /* Disable the UART */
+        IOUSBDevRequest req;
+        req.bmRequestType = USLCOM_WRITE;
+        req.bRequest = USLCOM_UART;
+        req.wValue = USLCOM_UART_DISABLE;
+        req.wIndex = USLCOM_PORT_NO;
+        req.wLength = 0;
+
+        LOG_DEBUG("Disabling UART");
+        IOReturn irt = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+        if (irt != kIOReturnSuccess) {
+            LOG_ERR("USLCOM_UART_DISABLE failed: %d", irt);
+
+            IOLockUnlock(_lock);
+            return kIOReturnOffline;
+        }
     }
+    IOLockUnlock(_lock);
 
     // TODO
     return kIOReturnSuccess;
