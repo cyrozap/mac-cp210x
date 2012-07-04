@@ -50,9 +50,16 @@ private:
     /** Lock that must be held when accessing internal mutable state. This is also used as a condition variable
      * to wake up any threads blocking on watchState() and its associated internal state changes. */
     IOLock *_lock;
+    
+    /* IOLockWakeup event condition to be used when _state is modified and the modification delta 
+     * matches _watchState. We use the address as a unique condition variable. */
+    void *_stateEvent;
 
     /** Current serial state, as defined by PD_S_* constants. */
     UInt32 _state;
+    
+    /** Current states being observed in watchState(), as defined by PD_S_* constants. */
+    UInt32 _watchState;
 
 public:
     
@@ -83,4 +90,6 @@ public:
     virtual IOReturn dequeueData (UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon);
     
 private:
+    IOReturn setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock);
+    IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock);
 };
