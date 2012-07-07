@@ -83,6 +83,7 @@ public:
     virtual UInt32 nextEvent (void *refCon);
     virtual IOReturn executeEvent (UInt32 event, UInt32 data, void *refCon);
     virtual IOReturn requestEvent (UInt32 event, UInt32 *data, void *refCon);
+    
     virtual IOReturn enqueueEvent (UInt32 event, UInt32 data, bool sleep, void *refCon);
     virtual IOReturn dequeueEvent (UInt32 *event, UInt32 *data, bool sleep, void *refCon);
 

@@ -430,8 +430,22 @@ IOReturn coop_plausible_driver_CP210x::watchState(UInt32 *state, UInt32 mask, vo
 
 // from IOSerialDriverSync
 UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
-    // TODO
-    return kIOReturnOffline;
+    IOReturn ret;
+
+    /* This implementation matches AppleUSBCDCDMM, which doesn't
+     * provide any event queueing. */
+    IOLockLock(_lock); {
+        // TODO - check if stopping?
+
+        if (_state & PD_S_ACTIVE) {
+            ret = kIOReturnSuccess;
+        } else {
+            ret = kIOReturnNotOpen;
+        }
+    }
+    IOLockUnlock(_lock);
+
+    return ret;
 }
 
 // from IOSerialDriverSync
@@ -446,16 +460,25 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
     return kIOReturnOffline;
 }
 
+
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::enqueueEvent(UInt32 event, UInt32 data, bool sleep, void *refCon) {
-    // TODO
-    return kIOReturnOffline;
+    return executeEvent(event, data, refCon);
 }
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::dequeueEvent(UInt32 *event, UInt32 *data, bool sleep, void *refCon) {
-    // TODO
-    return kIOReturnOffline;
+    /* Since we don't impelement event reporting from nextEvent(), this implementation is not required
+     * to provide a queued event. We return success if the port is open and the arguments
+     * are not invalid. */
+
+    if (event == NULL || data == NULL)
+        return kIOReturnBadArgument;
+
+    if (getState(refCon) & PD_S_ACTIVE)
+        return kIOReturnSuccess;
+
+    return kIOReturnNotOpen;
 }
 
 // from IOSerialDriverSync
