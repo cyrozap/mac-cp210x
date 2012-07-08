@@ -456,6 +456,8 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
     
     switch (event) {
         case PD_E_ACTIVE: {
+            LOG_DEBUG("executeEvent(PD_E_ACTIVE, %u, %p)", data, refCon);
+
             /* Start or stop the UART */
             bool start = data;
             
@@ -499,7 +501,39 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             break;
         }
 
+
+        case PD_E_RXQ_SIZE:
+            /* Adjust receive queue size. We're not required to support this. */
+            LOG_DEBUG("executeEvent(PD_E_RXQ_SIZE, %u, %p)", data, refCon);
+            break;
+        case PD_E_TXQ_SIZE:
+            /* Adjust send queue size. We're not required to support this. */
+            LOG_DEBUG("executeEvent(PD_E_TXQ_SIZE, %u, %p)", data, refCon);
+            break;
+            
+        case PD_E_RXQ_HIGH_WATER:
+            /* Optional */
+            LOG_DEBUG("executeEvent(PD_E_RXQ_HIGH_WATER, %u, %p)", data, refCon);
+            break;
+
+        case PD_E_RXQ_LOW_WATER:
+            /* Optional */
+            LOG_DEBUG("executeEvent(PD_E_RXQ_HIGH_WATER, %u, %p)", data, refCon);
+            break;
+
+        case PD_E_TXQ_HIGH_WATER:
+            /* Optional */
+            LOG_DEBUG("executeEvent(PD_E_TXQ_HIGH_WATER, %u, %p)", data, refCon);
+            break;
+
+        case PD_E_TXQ_LOW_WATER:
+            /* Optional */
+            LOG_DEBUG("executeEvent(PD_E_TXQ_LOW_WATER, %u, %p)", data, refCon);
+            break;
+
         default:
+            LOG_DEBUG("Unsupported executeEvent(%u, %u, %p)", event, data, refCon);
+            ret = kIOReturnBadArgument;
             break;
     }
 
@@ -518,19 +552,69 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
         return kIOReturnBadArgument;
     }
 
+    IOLockLock(_lock);
     switch (event) {
         case PD_E_ACTIVE:
-            if (getState(refCon) & PD_S_ACTIVE) {
+            /* Return active status */
+            if (_state & PD_S_ACTIVE) {
                 *data = true;
             } else {
                 *data = false;
             }
+            
+            LOG_DEBUG("requestEvent(PD_E_ACTIVE, %u, %p)", *data, refCon);
             break;
             
+        case PD_E_RXQ_SIZE:
+            /* Return rx buffer size */
+            *data = _rxBuffer->getCapacity();
+
+            LOG_DEBUG("requestEvent(PD_E_RXQ_SIZE, %u, %p)", *data, refCon);
+            break;
+
+        case PD_E_TXQ_SIZE:            
+            /* Return tx buffer size */
+            *data = _txBuffer->getCapacity();
+            
+            LOG_DEBUG("requestEvent(PD_E_TXQ_SIZE, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_RXQ_HIGH_WATER:
+            /* Unsupported. */
+            *data = 0;
+            
+            LOG_DEBUG("requestEvent(PD_E_RXQ_HIGH_WATER, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_RXQ_LOW_WATER:
+            /* Unsupported. */
+            *data = 0;
+            
+            LOG_DEBUG("requestEvent(PD_E_RXQ_HIGH_WATER, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_TXQ_HIGH_WATER:
+            /* Unsupported. */
+            *data = 0;
+            
+            LOG_DEBUG("requestEvent(PD_E_TXQ_HIGH_WATER, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_TXQ_LOW_WATER:
+            /* Unsupported. */
+            *data = 0;
+
+            LOG_DEBUG("requestEvent(PD_E_TXQ_LOW_WATER, %u, %p)", *data, refCon);
+            break;
+
+            
         default:
+            LOG_DEBUG("Unsupported requestEvent(%u, %p, %p)", event, data, refCon);
+            ret = kIOReturnBadArgument;
             break;
     }
-    
+
+    IOLockUnlock(_lock);
     return ret;
 }
 
