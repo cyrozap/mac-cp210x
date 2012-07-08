@@ -179,23 +179,6 @@ IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
                 return rtn;
             }
         }
-    
-        /* Enable the UART */
-        IOUSBDevRequest req;
-        req.bmRequestType = USLCOM_WRITE;
-        req.bRequest = USLCOM_UART;
-        req.wValue = USLCOM_UART_ENABLE;
-        req.wIndex = USLCOM_PORT_NO;
-        req.wLength = 0;
-
-        LOG_DEBUG("Enabling UART");
-        IOReturn rtn = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
-        if (rtn != kIOReturnSuccess) {
-            LOG_ERR("USLCOM_UART_ENABLE failed: %d", rtn);
-
-            IOLockUnlock(_lock);
-            return kIOReturnOffline;
-        }
 
         /* Set initial port state */
         setState(PD_S_ACQUIRED, STATE_ALL, refCon, true);
@@ -214,23 +197,6 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
         if ((_state & PD_S_ACQUIRED) == 0) {
             IOLockUnlock(_lock);
             return kIOReturnNotOpen;
-        }
-
-        /* Disable the UART */
-        IOUSBDevRequest req;
-        req.bmRequestType = USLCOM_WRITE;
-        req.bRequest = USLCOM_UART;
-        req.wValue = USLCOM_UART_DISABLE;
-        req.wIndex = USLCOM_PORT_NO;
-        req.wLength = 0;
-
-        LOG_DEBUG("Disabling UART");
-        IOReturn irt = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
-        if (irt != kIOReturnSuccess) {
-            LOG_ERR("USLCOM_UART_DISABLE failed: %d", irt);
-
-            IOLockUnlock(_lock);
-            return kIOReturnStillOpen;
         }
         
         /* Reset the state to closed */
@@ -330,17 +296,22 @@ IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, v
     if (!haveLock)
         IOLockLock(_lock);
     
-    /* Validate that at least one state is being observed. These return values match Apple's USB CDC DMM driver
+    /* Validate that at least one state is being observed. These return values match Apple's USBCDCDMM driver
      * implementation, but it's unclear why a state of 0 returns kIOReturnBadARgument, while a mask of 0x0 is 
-     * considered valid. */
-    if (state == 0)
+     * considered valid. XXX TODO: Review further, this behavior seems buggy, even if it does match Apple's
+     * driver. */
+    if (state == 0) {
+        LOG_DEBUG("Watch request with 0 state");
         return kIOReturnBadArgument;
-    
-    if (mask == 0)
-        return kIOReturnSuccess;
+    }
 
+    if (mask == 0) {
+        LOG_DEBUG("Watch request with 0 mask");
+        return kIOReturnSuccess;
+    }
+    
     /* Limit mask to EXTERNAL_MASK. There are no comments or documentation describing why this is
-     * necessary, but this matches Apple's USB CDC DMM driver implementation. */
+     * necessary, but this matches Apple's USBCDCDMM driver implementation. */
     mask &= STATE_EXTERNAL;
 
     /* There's nothing left to watch if the port has not been opened. */
@@ -450,14 +421,92 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, void *refCon) {
-    // TODO
-    return kIOReturnOffline;
+    IOReturn ret = kIOReturnSuccess;
+    UInt32 stateUpdate;
+    UInt32 stateMask;
+    
+    IOLockLock(_lock);
+    
+    // TODO check if stopping?
+    
+    switch (event) {
+        case PD_E_ACTIVE: {
+            /* Start or stop the UART */
+            bool start = data;
+            
+            /* Skip if already started, already stopped */
+            if (start && (_state & PD_S_ACTIVE) != 0) {
+                break;
+            } else if (!start && (_state & PD_S_ACTIVE) == 0) {
+                break;
+            }
+
+            /* Set up the UART request */
+            IOUSBDevRequest req;
+            req.bmRequestType = USLCOM_WRITE;
+            req.bRequest = USLCOM_UART;
+            req.wIndex = USLCOM_PORT_NO;
+            req.wLength = 0;
+
+            stateMask = PD_S_ACTIVE;
+            if (start) {
+                LOG_DEBUG("Enabling UART");
+                stateUpdate = PD_S_ACTIVE;
+                req.wValue = USLCOM_UART_ENABLE;
+            } else {
+                LOG_DEBUG("Disabling UART");
+                stateUpdate = 0;
+                req.wValue = USLCOM_UART_DISABLE;
+            }
+
+            /* Issue request */
+            ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+            if (ret != kIOReturnSuccess) {
+                LOG_ERR("Set PD_E_ACTIVE (data=%u) failed: %u", data, ret);
+                break;
+            }
+
+            /* Update state */
+            setState(stateUpdate, stateMask, refCon, true);
+            
+            // TODO - Restore any line state?
+            
+            break;
+        }
+
+        default:
+            break;
+    }
+
+    IOLockUnlock(_lock);
+    return ret;
 }
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, void *refCon) {
-    // TODO
-    return kIOReturnOffline;
+    IOReturn ret = kIOReturnSuccess;
+    
+    // TODO check if stopping?
+
+    if (data == NULL) {
+        LOG_DEBUG("requestEvent() NULL data argument");
+        return kIOReturnBadArgument;
+    }
+
+    switch (event) {
+        case PD_E_ACTIVE:
+            if (getState(refCon) & PD_S_ACTIVE) {
+                *data = true;
+            } else {
+                *data = false;
+            }
+            break;
+            
+        default:
+            break;
+    }
+    
+    return ret;
 }
 
 
