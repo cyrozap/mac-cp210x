@@ -696,6 +696,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             } else {
                 LOG_ERR("PD_RS232_E_STOP_BITS with invalid data=%u", data);
                 ret = kIOReturnBadArgument;
+                break;
             }
 
             /* Attempt to write the new configuration */
