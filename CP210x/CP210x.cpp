@@ -454,6 +454,55 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
     return ret;
 }
 
+/**
+ * Write the stop bits, parity, and character length settings to the device.
+ *
+ * @param txParity The USLCOM_PARITY_* constant to be used to configure the device.
+ * @param twoStopBits If true, set stop bits to 2. Otherwise 1.
+ * @param charLength The character length. Must be a value >= 5, <= 8.
+ */
+IOReturn coop_plausible_driver_CP210x::writeCP210xDataConfig (uint32_t txParity, bool twoStopBits, uint32_t charLength) {
+    LOG_DEBUG("Writing data config");
+    uint16_t data = 0;
+
+    /* Configure the bit field */
+    if (twoStopBits) {
+        data = USLCOM_STOP_BITS_2;
+    } else {
+        data = USLCOM_STOP_BITS_1;
+    }
+    
+    if (txParity == PD_RS232_PARITY_ODD) {
+        data |= USLCOM_PARITY_ODD;
+    } else if (txParity == PD_RS232_PARITY_EVEN) {
+        data |= USLCOM_PARITY_EVEN;
+    } else {
+        data |= USLCOM_PARITY_NONE;
+    }
+
+    if (charLength >= 5 && charLength <= 8) {
+        data |= USLCOM_SET_DATA_BITS(charLength);
+    } else {
+        LOG_ERR("Incorrect character length value configured: %u", charLength);
+    }
+    
+    /* Set up the UART request */
+    IOUSBDevRequest req;
+    req.bmRequestType = USLCOM_WRITE;
+    req.bRequest = USLCOM_DATA;
+    req.wValue = data;
+    req.wIndex = USLCOM_PORT_NO;
+    req.wLength = 0;
+    
+    /* Issue request */
+    IOReturn ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+    if (ret != kIOReturnSuccess) {
+        LOG_ERR("Set USLCOM_DATA failed: %u", ret);
+    }
+        
+    return ret;
+}
+
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, void *refCon) {
     IOReturn ret = kIOReturnSuccess;
@@ -610,13 +659,18 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
                 case PD_RS232_PARITY_EVEN:
                     /* Set TX+RX vs. RX-only parity */
                     if (event == PD_E_DATA_INTEGRITY) {
-                        _txParity = data;
-                        _rxParity = PD_RS232_PARITY_DEFAULT;
+                        /* Attempt to write the new configuration */
+                        ret = writeCP210xDataConfig(data, _twoStopBits, _characterLength);
+                        if (ret == kIOReturnSuccess) {
+                            /* Update internal state on success */
+                            _txParity = data;
+                            _rxParity = PD_RS232_PARITY_DEFAULT;
+                        }
+
                     } else {
                         _rxParity = data;
                     }
 
-                    // TODO - modify device state
                     break;
                     
                 default:
@@ -629,15 +683,22 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             
         case PD_E_DATA_SIZE: {
             /* Set the character bit size */
-            LOG_DEBUG("executeEvent(PD_E_DATA_SIZE, %u, %p)", data, refCon);
+            LOG_DEBUG("executeEvent(PD_E_DATA_SIZE, %u>>1, %p)", data, refCon);
+
+            /* Provided as half bits */
+            data >>= 1;
             
             if (data < 5 || data > 8) {
                 ret = kIOReturnBadArgument;
                 break;
             }
-            
-            _characterLength = data;
-            // TODO - modify device state
+
+            /* Attempt to write the new configuration */
+            ret = writeCP210xDataConfig(_txParity, _twoStopBits, data);
+            if (ret == kIOReturnSuccess) {
+                _characterLength = data;
+            }
+
             break;
         }
             
@@ -753,7 +814,7 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
              * Apple engineer is responsible.
              */
             *data = _baudRate << 1;
-            LOG_DEBUG("requestEvent(PD_E_DATA_RATE, %u<<1, %p)", *data, refCon);
+            LOG_DEBUG("requestEvent(PD_E_DATA_RATE, %u, %p)", *data, refCon);
             break;
             
         case PD_E_RX_DATA_RATE:
@@ -776,8 +837,8 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
             break;
             
         case PD_E_DATA_SIZE: {
-            /* Return the character bit length */
-            *data = _characterLength;
+            /* Return the character bit length (required to be half-bits). */
+            *data = _characterLength << 1;
             LOG_DEBUG("requestEvent(PD_E_DATA_SIZE, %u, %p)", *data, refCon);
             break;
         }

@@ -23,6 +23,8 @@
 
 /* Configuration constants derived from FreeBSD's uslcom(4) */
 
+#define	USLCOM_SET_DATA_BITS(x)	((x) << 8)
+
 /* Request types */
 #define	USLCOM_WRITE    USBmakebmRequestType(kUSBOut, kUSBVendor, kUSBInterface)
 #define	USLCOM_READ     USBmakebmRequestType(kUSBIn, kUSBVendor, kUSBInterface)
