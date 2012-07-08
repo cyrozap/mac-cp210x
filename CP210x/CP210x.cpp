@@ -681,6 +681,39 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
 
             break;
             
+        case PD_RS232_E_STOP_BITS:
+            /* Set the stop bits */
+            LOG_DEBUG("executeEvent(PD_RS232_E_STOP_BITS, %u>>1, %p)", data, refCon);
+
+            /* Provided as half bits */
+            data >>= 1;
+            bool newTwoStopBits;
+
+            if (data == 1) {
+                newTwoStopBits = false;
+            } else if (data == 2) {
+                newTwoStopBits = true;
+            } else {
+                LOG_ERR("PD_RS232_E_STOP_BITS with invalid data=%u", data);
+                ret = kIOReturnBadArgument;
+            }
+
+            /* Attempt to write the new configuration */
+            ret = writeCP210xDataConfig(_txParity, newTwoStopBits, _characterLength);
+            if (ret == kIOReturnSuccess) {
+                _twoStopBits = newTwoStopBits;
+            }
+
+            break;
+            
+        case PD_RS232_E_RX_STOP_BITS:
+            /* We don't support setting an independent RX stop bit value to anything but 0. It's unclear
+             * why we need to support a value of zero, but this matches Apple's USBCDCDMM implementation. */
+            LOG_DEBUG("executeEvent(PD_RS232_E_RX_STOP_BITS, %u>>1, %p)", data, refCon);
+            if (data != 0)
+                ret = kIOReturnBadArgument;
+            break;
+            
         case PD_E_DATA_SIZE: {
             /* Set the character bit size */
             LOG_DEBUG("executeEvent(PD_E_DATA_SIZE, %u>>1, %p)", data, refCon);
@@ -834,6 +867,23 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
             /* Return the rx parity value */
             *data = _rxParity;
             LOG_DEBUG("requestEvent(PD_E_RX_DATA_INTEGRITY, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_RS232_E_STOP_BITS:
+            /* Return the stop bit value (required to be half-bits). */
+            if (_twoStopBits) {
+                *data = 2 << 1;
+            } else {
+                *data = 1 << 1;
+            }
+            LOG_DEBUG("requestEvent(PD_RS232_E_STOP_BITS, %u>>1, %p)", *data, refCon);
+            break;
+            
+        case PD_RS232_E_RX_STOP_BITS:
+            /* We don't support setting an independent RX stop bit value to anything but 0. It's unclear
+             * why we need to return a value of zero, but this matches Apple's USBCDCDMM implementation. */
+            *data = 0x0;
+            LOG_DEBUG("requestEvent(PD_RS232_E_RX_STOP_BITS, %u, %p)", *data, refCon);
             break;
             
         case PD_E_DATA_SIZE: {
