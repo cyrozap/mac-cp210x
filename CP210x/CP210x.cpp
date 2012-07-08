@@ -578,6 +578,14 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
 
             break;
         }
+            
+        case PD_E_RX_DATA_RATE:
+            /* We don't support setting an independent RX data rate to anything but 0. It's unclear
+             * why we need to support a value of zero, but this matches Apple's USBCDCDMM implementation. */
+            LOG_DEBUG("executeEvent(PD_E_RX_DATA_RATE, %u>>1, %p)", data, refCon);
+            if (data != 0)
+                ret = kIOReturnBadArgument;
+            break;
 
         default:
             LOG_DEBUG("Unsupported executeEvent(%u, %u, %p)", event, data, refCon);
@@ -683,7 +691,14 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
              * Apple engineer is responsible.
              */
             *data = _baudRate << 1;
-            LOG_DEBUG("requestEvent(PD_E_DATA_RATE, %u, %p)", *data, refCon);
+            LOG_DEBUG("requestEvent(PD_E_DATA_RATE, %u<<1, %p)", *data, refCon);
+            break;
+            
+        case PD_E_RX_DATA_RATE:
+            /* We don't support setting an independent RX data rate to anything but 0. It's unclear
+             * why we need to return a value of zero, but this matches Apple's USBCDCDMM implementation. */
+            *data = 0x0;
+            LOG_DEBUG("requestEvent(PD_E_RX_DATA_RATE, %u<<1, %p)", *data, refCon);
             break;
             
         default:
