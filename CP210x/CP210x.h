@@ -68,6 +68,9 @@ private:
     /** Current states being observed in watchState(), as defined by PD_S_* constants. */
     UInt32 _watchState;
 
+    /** Currently configured baud rate. Defaults to 0 */
+    UInt32 _baudRate;
+
 public:
     
     // IOService

@@ -71,6 +71,8 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     }
     
     _lock = IOLockAlloc();
+    
+    _baudRate = 0;
 
     /* Fetch our USB provider */
     _provider = OSDynamicCast(IOUSBInterface, provider);
@@ -530,6 +532,52 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             /* Optional */
             LOG_DEBUG("executeEvent(PD_E_TXQ_LOW_WATER, %u, %p)", data, refCon);
             break;
+            
+        case PD_E_TXQ_FLUSH:
+            /* No-op. */
+            LOG_DEBUG("executeEvent(PD_E_TXQ_FLUSH, %u, %p)", data, refCon);
+            break;
+            
+        case PD_E_RXQ_FLUSH:
+            /* No-op. */
+            LOG_DEBUG("executeEvent(PD_E_RXQ_FLUSH, %u, %p)", data, refCon);
+            break;
+            
+        case PD_E_DATA_RATE: {
+            /* Set the baud rate. */
+            LOG_DEBUG("executeEvent(PD_E_DATA_RATE, %u>>1, %p)", data, refCon);
+            
+            /*
+             * IOSerialBSDClient shifts the speed << 1 before issuing a PD_E_DATA_RATE,
+             * claiming that the speed is stored in half-bits, but this does not appear
+             * to be the case. Comments in Apple's serial drivers' PD_E_DATA_RATE merely
+             * state 'For API compatiblilty with Intel' before reversing the shift.
+             *
+             * Summary: This is necessary to keep IOSerialBSDClient happy, and why
+             * IOSerialBSDClient requires this is lost to the history of whatever
+             * Apple engineer is responsible.
+             */
+            UInt32 baud = data >> 1;
+            
+            /* Set up the UART request */
+            IOUSBDevRequest req;
+            req.bmRequestType = USLCOM_WRITE;
+            req.bRequest = USLCOM_BAUD_RATE;
+            req.wValue = USLCOM_BAUD_REF / baud;
+            req.wIndex = USLCOM_PORT_NO;
+            req.wLength = 0;
+            
+            /* Issue request */
+            ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+            if (ret == kIOReturnSuccess) {
+                _baudRate = baud;
+            } else {
+                LOG_ERR("Set USLCOM_BAUD_RATE failed: %u", ret);
+                break;
+            }
+
+            break;
+        }
 
         default:
             LOG_DEBUG("Unsupported executeEvent(%u, %u, %p)", event, data, refCon);
@@ -606,7 +654,37 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
 
             LOG_DEBUG("requestEvent(PD_E_TXQ_LOW_WATER, %u, %p)", *data, refCon);
             break;
-
+            
+            
+        case PD_E_TXQ_AVAILABLE:
+            /* Return the free space in the TX buffer */
+            *data = _txBuffer->getCapacity() - _txBuffer->getLength();
+            
+            LOG_DEBUG("requestEvent(PD_E_TXQ_AVAILABLE, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_RXQ_AVAILABLE:
+            /* Return the number of bytes available in the RX buffer */
+            *data = _rxBuffer->getLength();
+            
+            LOG_DEBUG("requestEvent(PD_E_RXQ_AVAILABLE, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_DATA_RATE:
+            /*
+             * IOSerialBSDClient shifts the speed >>1 after receiving the PD_E_DATA_RATE data,
+             * claiming that the speed is stored in half-bits; this is not actually the case.
+             *
+             * Comments in Apple's serial drivers' PD_E_DATA_RATE merely
+             * state 'For API compatiblilty with Intel' before reversing the shift.
+             *
+             * Summary: This is necessary to keep IOSerialBSDClient happy, and why
+             * IOSerialBSDClient requires this is lost to the history of whatever
+             * Apple engineer is responsible.
+             */
+            *data = _baudRate << 1;
+            LOG_DEBUG("requestEvent(PD_E_DATA_RATE, %u, %p)", *data, refCon);
+            break;
             
         default:
             LOG_DEBUG("Unsupported requestEvent(%u, %p, %p)", event, data, refCon);
