@@ -121,6 +121,7 @@ public:
 private:
     IOReturn setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock);
     IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock);
-    
+
+    IOReturn writeCP210xFlowControlConfig (bool crtscts);
     IOReturn writeCP210xDataConfig (uint32_t txParity, bool twoStopBits, uint32_t charLength);
 };

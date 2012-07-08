@@ -276,6 +276,12 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
         return kIOReturnNotOpen;
     }
     
+    /* Handle flow control modifications */
+    if (mask & PD_RS232_S_MASK) {
+        
+        writeCP210xFlowControlConfig(true);
+    }
+
     // TODO - Forbid state modifications we can't support via setState().
 #if 0
     if (state & STATE_SET_UNSUPPORTED) {
@@ -455,6 +461,47 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
 }
 
 /**
+ * Write the flow control configuration to the device.
+ *
+ * @param crtscts If true, enable RTS/CTS. If false, enable 
+ */
+IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (bool crtscts) {
+    /* Initialize the request data */
+    uint32_t flowctrl[4];
+
+    if (crtscts) {
+        flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON | USLCOM_FLOW_CTS_HS);
+		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
+		flowctrl[2] = 0;
+		flowctrl[3] = 0;
+    } else {
+        flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
+		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_ON);
+		flowctrl[2] = 0;
+		flowctrl[3] = 0;
+    }
+
+    /* Set up the USB request */
+    IOUSBDevRequest req;
+    req.bmRequestType = USLCOM_WRITE;
+    req.bRequest = USLCOM_SET_FLOWCTRL;
+    req.wValue = 0;
+    req.wIndex = USLCOM_PORT_NO;
+    req.wLength = sizeof(flowctrl);
+    req.pData = flowctrl;
+
+    /* Issue request */
+    IOReturn ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+    if (ret != kIOReturnSuccess) {
+        LOG_ERR("Set USLCOM_SET_FLOWCTRL failed: %u", ret);
+    }
+    
+    return ret;
+
+    return 0;
+}
+
+/**
  * Write the stop bits, parity, and character length settings to the device.
  *
  * @param txParity The USLCOM_PARITY_* constant to be used to configure the device.
@@ -486,7 +533,7 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xDataConfig (uint32_t txParity,
         LOG_ERR("Incorrect character length value configured: %u", charLength);
     }
     
-    /* Set up the UART request */
+    /* Set up the USB request */
     IOUSBDevRequest req;
     req.bmRequestType = USLCOM_WRITE;
     req.bRequest = USLCOM_DATA;
@@ -746,8 +793,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
 
         case PD_E_FLOW_CONTROL:
             LOG_DEBUG("executeEvent(PD_E_FLOW_CONTROL, %x, %p)", data, refCon);
-
-            // TODO - Implement!
+            setState(data & PD_RS232_S_MASK, PD_RS232_S_MASK, refCon, true);
             break;
 
         case PD_RS232_E_XON_BYTE:
@@ -918,7 +964,6 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
         }
 
         case PD_E_FLOW_CONTROL:
-            // TODO - Implement!
             *data = _state & PD_RS232_S_MASK;
             LOG_DEBUG("requestEvent(PD_E_FLOW_CONTROL, %u, %p)", *data, refCon);
             break;
