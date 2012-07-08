@@ -36,6 +36,7 @@
 #include <IOKit/usb/IOUSBInterface.h>
 
 #include "SerialDevice.h"
+#include "RingBuffer.h"
 
 class coop_plausible_driver_CP210x : public IOSerialDriverSync {
     OSDeclareDefaultStructors(coop_plausible_driver_CP210x);
@@ -47,6 +48,12 @@ private:
     /** Our child serial nub. */
     coop_plausible_CP210x_SerialDevice *_serialDevice;
     
+    /** TX buffer. */
+    coop_plausible_CP210x_RingBuffer *_txBuffer;
+    
+    /** RX buffer. */
+    coop_plausible_CP210x_RingBuffer *_rxBuffer;
+
     /** Lock that must be held when accessing internal mutable state. This is also used as a condition variable
      * to wake up any threads blocking on watchState() and its associated internal state changes. */
     IOLock *_lock;

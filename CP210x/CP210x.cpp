@@ -39,6 +39,9 @@
 
 #include "logging.h"
 
+/* Default ring buffer size */
+#define BUFFER_SIZE (PAGE_SIZE * 3)
+
 // Define the superclass
 #define super IOSerialDriverSync
 
@@ -75,6 +78,20 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         LOG_ERR("Received invalid provider");
         return false;
     }
+    _provider->retain();
+
+    /* Configure TX/RX buffers */
+    _txBuffer = new coop_plausible_CP210x_RingBuffer();
+    if (!_txBuffer->init(BUFFER_SIZE)) {
+        LOG_ERR("Could not create TX buffer");
+        return false;
+    }
+    
+    _rxBuffer = new coop_plausible_CP210x_RingBuffer();
+    if (!_rxBuffer->init(BUFFER_SIZE)) {
+        LOG_ERR("Could not create RX buffer");
+        return false;
+    }
 
     /* Create our child serial stream */
     _serialDevice = new coop_plausible_CP210x_SerialDevice();
@@ -84,8 +101,6 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     }
     
     LOG_DEBUG("Driver started");
-
-    _provider->retain();
 
 #if DEBUG
     /* Run the debug build unit tests */
@@ -114,6 +129,16 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
     if (_serialDevice != NULL) {
         _serialDevice->release();
         _serialDevice = NULL;
+    }
+    
+    if (_txBuffer != NULL) {
+        _txBuffer->release();
+        _txBuffer = NULL;
+    }
+    
+    if (_rxBuffer != NULL) {
+        _rxBuffer->release();
+        _rxBuffer = NULL;
     }
 
     LOG_DEBUG("Driver stopped");
