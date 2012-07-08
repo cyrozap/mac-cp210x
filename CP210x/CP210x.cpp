@@ -540,6 +540,7 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xDataConfig (uint32_t txParity,
     req.wValue = data;
     req.wIndex = USLCOM_PORT_NO;
     req.wLength = 0;
+    req.pData = NULL;
     
     /* Issue request */
     IOReturn ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
@@ -580,6 +581,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             req.bRequest = USLCOM_UART;
             req.wIndex = USLCOM_PORT_NO;
             req.wLength = 0;
+            req.pData = NULL;
 
             stateMask = PD_S_ACTIVE;
             if (start) {
@@ -670,6 +672,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             req.wValue = USLCOM_BAUD_REF / baud;
             req.wIndex = USLCOM_PORT_NO;
             req.wLength = 0;
+            req.pData = NULL;
             
             /* Issue request */
             ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
