@@ -263,7 +263,7 @@ UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
  * automatically.
  */
 IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock) {
-    LOG_DEBUG("setState(0x%x 0x%x, %p, %x)", state, mask, refCon, (uint32_t)haveLock);
+    LOG_DEBUG("setState(0x%x, 0x%x, %p, %x)", state, mask, refCon, (uint32_t)haveLock);
 
     if (!haveLock)
         IOLockLock(_lock);
