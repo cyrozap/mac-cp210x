@@ -595,6 +595,38 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
                 ret = kIOReturnBadArgument;
             break;
             
+        case PD_E_DATA_INTEGRITY:
+            // Fall-through
+        case PD_E_RX_DATA_INTEGRITY:
+            if (event == PD_E_DATA_INTEGRITY) {
+                LOG_DEBUG("executeEvent(PD_E_DATA_INTEGRITY, %u, %p)", data, refCon);
+            } else {
+                LOG_DEBUG("executeEvent(PD_E_DATA_INTEGRITY, %u, %p)", data, refCon);
+            }
+
+            switch (data) {
+                case PD_RS232_PARITY_NONE:
+                case PD_RS232_PARITY_ODD:
+                case PD_RS232_PARITY_EVEN:
+                    /* Set TX+RX vs. RX-only parity */
+                    if (event == PD_E_DATA_INTEGRITY) {
+                        _txParity = data;
+                        _rxParity = PD_RS232_PARITY_DEFAULT;
+                    } else {
+                        _rxParity = data;
+                    }
+
+                    // TODO - modify device state
+                    break;
+                    
+                default:
+                    /* Unsupported parity setting */
+                    ret = kIOReturnBadArgument;
+                    break;
+            }
+
+            break;
+            
         case PD_E_DATA_SIZE: {
             /* Set the character bit size */
             LOG_DEBUG("executeEvent(PD_E_DATA_SIZE, %u, %p)", data, refCon);
@@ -605,8 +637,17 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             }
             
             _characterLength = data;
+            // TODO - modify device state
             break;
         }
+            
+        case PD_E_RX_DATA_SIZE:
+            /* We don't support setting an independent RX data size to anything but 0. It's unclear
+             * why we need to support a value of zero, but this matches Apple's USBCDCDMM implementation. */
+            LOG_DEBUG("executeEvent(PD_E_RX_DATA_SIZE, %u>>1, %p)", data, refCon);
+            if (data != 0)
+                ret = kIOReturnBadArgument;
+            break;
 
         default:
             LOG_DEBUG("Unsupported executeEvent(%u, %u, %p)", event, data, refCon);
@@ -722,11 +763,31 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
             LOG_DEBUG("requestEvent(PD_E_RX_DATA_RATE, %u, %p)", *data, refCon);
             break;
             
-        case PD_E_DATA_SIZE:
-            /* Get the character bit size */
+        case PD_E_DATA_INTEGRITY:
+            /* Return the tx parity value */
+            *data = _txParity;
+            LOG_DEBUG("requestEvent(PD_E_DATA_INTEGRITY, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_RX_DATA_INTEGRITY:
+            /* Return the rx parity value */
+            *data = _rxParity;
+            LOG_DEBUG("requestEvent(PD_E_RX_DATA_INTEGRITY, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_DATA_SIZE: {
+            /* Return the character bit length */
             *data = _characterLength;
             LOG_DEBUG("requestEvent(PD_E_DATA_SIZE, %u, %p)", *data, refCon);
             break;
+        }
+            
+        case PD_E_RX_DATA_SIZE: {
+            /* Return the RX-specific character bit length. We only support 0x0. */
+            *data = 0x00;
+            LOG_DEBUG("requestEvent(PD_E_RX_DATA_SIZE, %u, %p)", *data, refCon);
+            break;
+        }
             
         default:
             LOG_DEBUG("Unsupported requestEvent(%u, %p, %p)", event, data, refCon);
