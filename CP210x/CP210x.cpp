@@ -814,7 +814,7 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
              * Apple engineer is responsible.
              */
             *data = _baudRate << 1;
-            LOG_DEBUG("requestEvent(PD_E_DATA_RATE, %u, %p)", *data, refCon);
+            LOG_DEBUG("requestEvent(PD_E_DATA_RATE, %u>>1, %p)", *data, refCon);
             break;
             
         case PD_E_RX_DATA_RATE:
@@ -839,7 +839,7 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
         case PD_E_DATA_SIZE: {
             /* Return the character bit length (required to be half-bits). */
             *data = _characterLength << 1;
-            LOG_DEBUG("requestEvent(PD_E_DATA_SIZE, %u, %p)", *data, refCon);
+            LOG_DEBUG("requestEvent(PD_E_DATA_SIZE, %u>>1, %p)", *data, refCon);
             break;
         }
             
