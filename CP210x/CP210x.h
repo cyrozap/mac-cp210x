@@ -68,8 +68,26 @@ private:
     /** Current states being observed in watchState(), as defined by PD_S_* constants. */
     UInt32 _watchState;
 
-    /** Currently configured baud rate. Defaults to 0 */
+    /** Currently configured baud rate. */
     UInt32 _baudRate;
+    
+    /** Currently configured character length. Must be >=5, <= 8. */
+    UInt32 _characterLength;
+
+    /** TX Parity. One of the PD_RS232_PARITY_* constants. */
+    uint32_t _txParity;
+    
+    /** RX Parity. One of the PD_RS232_PARITY_* constants. */
+    uint32_t _rxParity;
+    
+    /** If true, use two 2 stop bits. If false, use 1. */
+    bool _twoStopBits;
+    
+    /** XON character */
+    uint8_t _xonChar;
+    
+    /** XOFF character */
+    uint8_t _xoffChar;
 
 public:
     
@@ -103,4 +121,6 @@ public:
 private:
     IOReturn setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock);
     IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock);
+    
+    
 };

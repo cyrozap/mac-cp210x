@@ -71,8 +71,16 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     }
     
     _lock = IOLockAlloc();
-    
+
+    /* Set port defaults. These will be set by the BSD termios intialization code path
+     * on first open. */
     _baudRate = 0;
+    _characterLength = 0;
+    _txParity = PD_RS232_PARITY_DEFAULT;
+    _rxParity = PD_RS232_PARITY_DEFAULT;
+    _twoStopBits = false;
+    _xonChar = '\0';
+    _xoffChar = '\0';
 
     /* Fetch our USB provider */
     _provider = OSDynamicCast(IOUSBInterface, provider);
@@ -586,6 +594,19 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             if (data != 0)
                 ret = kIOReturnBadArgument;
             break;
+            
+        case PD_E_DATA_SIZE: {
+            /* Set the character bit size */
+            LOG_DEBUG("executeEvent(PD_E_DATA_SIZE, %u, %p)", data, refCon);
+            
+            if (data < 5 || data > 8) {
+                ret = kIOReturnBadArgument;
+                break;
+            }
+            
+            _characterLength = data;
+            break;
+        }
 
         default:
             LOG_DEBUG("Unsupported executeEvent(%u, %u, %p)", event, data, refCon);
@@ -698,7 +719,13 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
             /* We don't support setting an independent RX data rate to anything but 0. It's unclear
              * why we need to return a value of zero, but this matches Apple's USBCDCDMM implementation. */
             *data = 0x0;
-            LOG_DEBUG("requestEvent(PD_E_RX_DATA_RATE, %u<<1, %p)", *data, refCon);
+            LOG_DEBUG("requestEvent(PD_E_RX_DATA_RATE, %u, %p)", *data, refCon);
+            break;
+            
+        case PD_E_DATA_SIZE:
+            /* Get the character bit size */
+            *data = _characterLength;
+            LOG_DEBUG("requestEvent(PD_E_DATA_SIZE, %u, %p)", *data, refCon);
             break;
             
         default:
