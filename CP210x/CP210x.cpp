@@ -743,7 +743,13 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             if (data != 0)
                 ret = kIOReturnBadArgument;
             break;
-            
+
+        case PD_E_FLOW_CONTROL:
+            LOG_DEBUG("executeEvent(PD_E_FLOW_CONTROL, %x, %p)", data, refCon);
+
+            // TODO - Implement!
+            break;
+
         case PD_RS232_E_XON_BYTE:
             LOG_DEBUG("executeEvent(PD_RS232_E_XON_BYTE, %u, %p)", data, refCon);
             _xonChar = data;
@@ -910,7 +916,13 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
             LOG_DEBUG("requestEvent(PD_E_RX_DATA_SIZE, %u, %p)", *data, refCon);
             break;
         }
-            
+
+        case PD_E_FLOW_CONTROL:
+            // TODO - Implement!
+            *data = _state & PD_RS232_S_MASK;
+            LOG_DEBUG("requestEvent(PD_E_FLOW_CONTROL, %u, %p)", *data, refCon);
+            break;
+
         case PD_RS232_E_XON_BYTE:            
             *data = _xonChar;
             LOG_DEBUG("requestEvent(PD_RS232_E_XON_BYTE, %u, %p)", *data, refCon);
