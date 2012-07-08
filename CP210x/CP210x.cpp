@@ -742,9 +742,19 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             if (data != 0)
                 ret = kIOReturnBadArgument;
             break;
+            
+        case PD_RS232_E_XON_BYTE:
+            LOG_DEBUG("executeEvent(PD_RS232_E_XON_BYTE, %u, %p)", data, refCon);
+            _xonChar = data;
+            break;
+            
+        case PD_RS232_E_XOFF_BYTE:
+            LOG_DEBUG("executeEvent(PD_RS232_E_XOFF_BYTE, %u, %p)", data, refCon);
+            _xoffChar = data;
+            break;
 
         default:
-            LOG_DEBUG("Unsupported executeEvent(%u, %u, %p)", event, data, refCon);
+            LOG_DEBUG("Unsupported executeEvent(%x, %u, %p)", event, data, refCon);
             ret = kIOReturnBadArgument;
             break;
     }
@@ -900,8 +910,18 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
             break;
         }
             
+        case PD_RS232_E_XON_BYTE:            
+            *data = _xonChar;
+            LOG_DEBUG("requestEvent(PD_RS232_E_XON_BYTE, %u, %p)", *data, refCon);
+            break;
+
+        case PD_RS232_E_XOFF_BYTE:
+            *data = _xoffChar;
+            LOG_DEBUG("requestEvent(PD_RS232_E_XOFF_BYTE, %u, %p)", *data, refCon);
+            break;
+            
         default:
-            LOG_DEBUG("Unsupported requestEvent(%u, %p, %p)", event, data, refCon);
+            LOG_DEBUG("Unsupported requestEvent(%x, %p, %p)", event, data, refCon);
             ret = kIOReturnBadArgument;
             break;
     }
