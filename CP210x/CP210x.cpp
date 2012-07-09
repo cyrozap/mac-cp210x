@@ -42,6 +42,9 @@
 /* Default ring buffer size */
 #define BUFFER_SIZE (PAGE_SIZE * 3)
 
+/* Define a termios-style CRTSCTS -- CRTS_IFLOW | CCTS_OFLOW */
+#define PL_CRTSCTS (PD_RS232_A_RFR | PD_RS232_A_CTS)
+
 // Define the superclass
 #define super IOSerialDriverSync
 
@@ -277,9 +280,21 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
     }
     
     /* Handle flow control modifications */
-    if (mask & PD_RS232_S_MASK) {
-        
-        writeCP210xFlowControlConfig(true);
+    if (mask & PL_CRTSCTS) {
+        /* Skip configuring the flow control state if it already matches. */
+        if ((state & PL_CRTSCTS) != (_state & PL_CRTSCTS)) {
+            bool crtscts = false;
+            if (state & (PL_CRTSCTS == PL_CRTSCTS)) {
+                crtscts = true;
+            }
+            
+            IOReturn ret = writeCP210xFlowControlConfig(false);
+            if (ret != kIOReturnSuccess) {
+                if (!haveLock)
+                    IOLockUnlock(_lock);
+                return ret;
+            }
+        }
     }
 
     // TODO - Forbid state modifications we can't support via setState().
@@ -463,7 +478,7 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
 /**
  * Write the flow control configuration to the device.
  *
- * @param crtscts If true, enable RTS/CTS. If false, enable 
+ * @param crtscts If true, enable RTS/CTS. If false, enable DTR/RTS.
  */
 IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (bool crtscts) {
     /* Initialize the request data */
@@ -497,8 +512,6 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (bool crtsct
     }
     
     return ret;
-
-    return 0;
 }
 
 /**
@@ -807,6 +820,23 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
         case PD_RS232_E_XOFF_BYTE:
             LOG_DEBUG("executeEvent(PD_RS232_E_XOFF_BYTE, %u, %p)", data, refCon);
             _xoffChar = data;
+            break;
+            
+        case PD_E_SPECIAL_BYTE:
+            LOG_DEBUG("executeEvent(PD_E_SPECIAL_BYTE, %u, %p)", data, refCon);
+            /**
+             * 'Special' bytes are an optional optimization, used to implement
+             * wake up of waiting threads if a 'special' character is received. This
+             * is only used by the PPP and SLIP line disciplines. We do not support
+             * this feature.
+             */
+            break;
+
+        case PD_E_VALID_DATA_BYTE:
+            LOG_DEBUG("executeEvent(PD_E_VALID_DATA_BYTE, %u, %p)", data, refCon);
+            /**
+             * Reset a 'special' byte set in PD_E_SPECIAL_BYTE.
+             */
             break;
 
         default:
