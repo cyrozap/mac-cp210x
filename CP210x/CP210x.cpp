@@ -302,22 +302,23 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
         return kIOReturnNotOpen;
     }
     
+    /* Compute the new state, as well as the state delta */
+    UInt32 newState = (_state & ~mask) | (state & mask);
+    UInt32 deltaState = newState ^ _state;
+
     /* Handle flow control modifications */
-    if (mask & PL_S_CRTSCTS) {
+    if ((deltaState & PL_S_CRTSCTS) != 0) {
         LOG_DEBUG("Flow control change requested");
-        /* Skip configuring the flow control state if it already matches. */
-        if ((state & PL_S_CRTSCTS) != (_state & PL_S_CRTSCTS)) {
-            bool crtscts = false;
-            if ((state & PL_S_CRTSCTS) == PL_S_CRTSCTS) {
-                crtscts = true;
-            }
-            
-            IOReturn ret = writeCP210xFlowControlConfig(crtscts);
-            if (ret != kIOReturnSuccess) {
-                if (!haveLock)
-                    IOLockUnlock(_lock);
-                return ret;
-            }
+        bool crtscts = false;
+        if ((newState & PL_S_CRTSCTS) == PL_S_CRTSCTS) {
+            crtscts = true;
+        }
+
+        IOReturn ret = writeCP210xFlowControlConfig(crtscts);
+        if (ret != kIOReturnSuccess) {
+            if (!haveLock)
+                IOLockUnlock(_lock);
+            return ret;
         }
     }
 
@@ -329,10 +330,6 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
         return kIOReturnBadArgument;
     }
 #endif
-
-    /* Compute the new state, as well as the state delta */
-    UInt32 newState = (_state & ~mask) | (state & mask);
-    UInt32 deltaState = newState ^ _state;
 
     /* Update the internal state */
     _state = newState;
