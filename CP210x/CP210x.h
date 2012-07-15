@@ -88,17 +88,18 @@ private:
     
     /** XOFF character */
     uint8_t _xoffChar;
+    
+    /** If true, driver is stopping, and all internal state has been reset. */
+    bool _stopping;
 
 public:
     
     // IOService
-    
-	virtual IOService *probe (IOService *provider, SInt32 *score);
+    virtual bool init (OSDictionary *dict = NULL);
+    virtual IOService *probe (IOService *provider, SInt32 *score);
     virtual bool start (IOService *provider);
     virtual void stop (IOService *provider);
     virtual void free (void);
-
-    virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
 
     // IOSerialDriverSync
     virtual IOReturn acquirePort (bool sleep, void *refCon);

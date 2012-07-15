@@ -65,6 +65,21 @@ IOService *coop_plausible_driver_CP210x::probe (IOService *provider, SInt32 *sco
 }
 
 // from IOService base class
+bool coop_plausible_driver_CP210x::init (OSDictionary *dict) {
+    LOG_DEBUG("Driver initializing");
+
+    if (!super::init(dict)) {
+        LOG_ERR("super::init() failed");
+        return false;
+    }
+
+    _lock = IOLockAlloc();
+    _stopping = false;
+
+    return true;
+}
+
+// from IOService base class
 bool coop_plausible_driver_CP210x::start (IOService *provider) {
     LOG_DEBUG("Driver starting");
 
@@ -72,10 +87,8 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         LOG_ERR("super::start() failed");
         return false;
     }
-    
-    _lock = IOLockAlloc();
 
-    /* Set port defaults. These will be set by the BSD termios intialization code path
+    /* Reset port defaults. These will be set by the BSD termios intialization code path
      * on first open. */
     _baudRate = 0;
     _characterLength = 0;
@@ -128,11 +141,9 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
 // from IOService base class
 void coop_plausible_driver_CP210x::stop (IOService *provider) {
     LOG_DEBUG("Driver stopping");
-
-    if (_lock != NULL) {
-        IOLockFree(_lock);
-        _lock = NULL;
-    }
+    
+    IOLockLock(_lock);
+    _stopping = true;
 
     if (_provider != NULL) {
         _provider->release();
@@ -153,6 +164,8 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
         _rxBuffer->release();
         _rxBuffer = NULL;
     }
+    
+    IOLockUnlock(_lock);
 
     LOG_DEBUG("Driver stopped");
     super::stop(provider);
@@ -160,38 +173,14 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
 
 // from IOService base class
 void coop_plausible_driver_CP210x::free (void) {
-    LOG_DEBUG("free\n");
-    super::free();
-}
+    LOG_DEBUG("free\n");    
 
-// from IOService base class
-IOReturn coop_plausible_driver_CP210x::message(UInt32 type, IOService *provider, void *argument) {
-    // TODO
-
-    switch (type) {
-        case kIOMessageServiceIsTerminated:
-            return kIOReturnSuccess;			
-        case kIOMessageServiceIsSuspended: 	
-            break;			
-        case kIOMessageServiceIsResumed: 	
-            break;			
-        case kIOMessageServiceIsRequestingClose: 
-            break;
-        case kIOMessageServiceWasClosed: 	
-            break;
-        case kIOMessageServiceBusyStateChange: 	
-            break;
-        case kIOUSBMessagePortHasBeenResumed: 	
-            return kIOReturnSuccess;
-        case kIOUSBMessageHubResumePort:
-            break;
-        case kIOUSBMessagePortHasBeenReset:
-            return kIOReturnSuccess;
-        default:
-            break;
+    if (_lock != NULL) {
+        IOLockFree(_lock);
+        _lock = NULL;
     }
-    
-    return super::message(type, provider, argument);
+
+    super::free();
 }
 
 
@@ -200,6 +189,13 @@ IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
     LOG_DEBUG("Acquire Port");
 
     IOLockLock(_lock); {
+        /* Verify that the driver has not been stopped */
+        if (_stopping) {
+            LOG_DEBUG("acquirePort() - offline (stopping)");
+            IOLockUnlock(_lock);
+            return kIOReturnOffline;
+        }
+
         /* Verify that the port has not already been acquired, and if so, optionally
          * wait for it to be released. */
         while (_state & PD_S_ACQUIRED) {
@@ -231,6 +227,13 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
     LOG_DEBUG("Release Port");
 
     IOLockLock(_lock); {
+        /* Verify that the driver has not been stopped */
+        if (_stopping) {
+            LOG_DEBUG("releasePort() - offline (stopping)");
+            IOLockUnlock(_lock);
+            return kIOReturnOffline;
+        }
+
         /* Validate that the port is actually open */
         if ((_state & PD_S_ACQUIRED) == 0) {
             IOLockUnlock(_lock);
@@ -249,8 +252,17 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
 UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
     LOG_DEBUG("Get State");
 
-    IOLockLock(_lock);
-    UInt32 res = _state & STATE_EXTERNAL;
+    UInt32 res;
+    IOLockLock(_lock); {    
+        /* Verify that the driver has not been stopped */
+        if (_stopping) {
+            LOG_DEBUG("getState() - offline (stopping)");
+            IOLockUnlock(_lock);
+            return 0;
+        }
+        
+        res = _state & STATE_EXTERNAL;
+    }
     IOLockUnlock(_lock);
 
     return res;
@@ -268,8 +280,16 @@ UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
 IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock) {
     LOG_DEBUG("setState(0x%x, 0x%x, %p, %x)", state, mask, refCon, (uint32_t)haveLock);
 
-    if (!haveLock)
+    if (!haveLock) {
         IOLockLock(_lock);
+        
+        /* Verify that the driver has not been stopped while the lock was not held */
+        if (_stopping) {
+            LOG_DEBUG("setState() - offline (stopping)");
+            IOLockUnlock(_lock);
+            return kIOReturnOffline;
+        }
+    }
 
     /* If the port has neither been acquired, nor is it being acquired, then inform the caller that
      * the port is not open. */
@@ -349,9 +369,17 @@ IOReturn coop_plausible_driver_CP210x::setState(UInt32 state, UInt32 mask, void 
 IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock) {
     LOG_DEBUG("Watch State");
 
-    if (!haveLock)
+    if (!haveLock) {
         IOLockLock(_lock);
-    
+
+        /* Verify that the driver has not been stopped while the lock was not held */
+        if (_stopping) {
+            LOG_DEBUG("watchState() - offline (stopping)");
+            IOLockUnlock(_lock);
+            return kIOReturnOffline;
+        }
+    }
+
     /* Validate that at least one state is being observed. These return values match Apple's USBCDCDMM driver
      * implementation, but it's unclear why a state of 0 returns kIOReturnBadARgument, while a mask of 0x0 is 
      * considered valid. XXX TODO: Review further, this behavior seems buggy, even if it does match Apple's
@@ -439,7 +467,12 @@ IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, v
             return kIOReturnAborted;
         }
 
-        // TODO - Should we be monitoring for termination of our driver here?
+        /* Check if we've been stopped while the lock was relinquished. */
+        if (_stopping) {
+            LOG_DEBUG("watchState() - offline (stopping) after IOLockSleep");
+            IOLockUnlock(_lock);
+            return kIOReturnOffline;
+        }
     }
 
     if (!haveLock)
@@ -462,9 +495,10 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
     /* This implementation matches AppleUSBCDCDMM, which doesn't
      * provide any event queueing. */
     IOLockLock(_lock); {
-        // TODO - check if stopping?
-
-        if (_state & PD_S_ACTIVE) {
+        if (_stopping) {
+            LOG_DEBUG("nextEvent() - offline (stopping)");
+            ret = kIOReturnOffline;
+        } else if (_state & PD_S_ACTIVE) {
             ret = kIOReturnSuccess;
         } else {
             ret = kIOReturnNotOpen;
@@ -571,8 +605,13 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
     UInt32 stateMask;
     
     IOLockLock(_lock);
-    
-    // TODO check if stopping?
+
+    /* Verify that the driver has not been stopped */
+    if (_stopping) {
+        LOG_DEBUG("executeEvent() - offline (stopping)");
+        IOLockUnlock(_lock);
+        return kIOReturnOffline;
+    }
     
     switch (event) {
         case PD_E_ACTIVE: {
@@ -853,14 +892,20 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
 IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, void *refCon) {
     IOReturn ret = kIOReturnSuccess;
     
-    // TODO check if stopping?
-
     if (data == NULL) {
         LOG_DEBUG("requestEvent() NULL data argument");
         return kIOReturnBadArgument;
     }
 
     IOLockLock(_lock);
+
+    /* Verify that the driver has not been stopped */
+    if (_stopping) {
+        LOG_DEBUG("requestEvent() - offline (stopping)");
+        IOLockUnlock(_lock);
+        return kIOReturnOffline;
+    }
+
     switch (event) {
         case PD_E_ACTIVE:
             /* Return active status */
