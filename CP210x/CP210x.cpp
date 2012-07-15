@@ -42,8 +42,11 @@
 /* Default ring buffer size */
 #define BUFFER_SIZE (PAGE_SIZE * 3)
 
+/* Valid flow control arguments */
+#define PL_A_FLOWCONTROL_MASK (PD_RS232_A_TXO | PD_RS232_A_XANY | PD_RS232_A_RXO | PD_RS232_S_RFR | PD_RS232_S_CTS | PD_RS232_S_DTR)
+
 /* Define a termios-style CRTSCTS -- CRTS_IFLOW | CCTS_OFLOW */
-#define PL_CRTSCTS (PD_RS232_A_RFR | PD_RS232_A_CTS)
+#define PL_S_CRTSCTS (PD_RS232_S_RFR | PD_RS232_S_CTS)
 
 // Define the superclass
 #define super IOSerialDriverSync
@@ -269,7 +272,7 @@ UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
 }
 
 /**
- * Directly the internal state.
+ * Directly set the internal state.
  *
  * @param state The updated state to be set.
  * @param mask The mask to use when setting @a state
@@ -300,15 +303,16 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
     }
     
     /* Handle flow control modifications */
-    if (mask & PL_CRTSCTS) {
+    if (mask & PL_S_CRTSCTS) {
+        LOG_DEBUG("Flow control change requested");
         /* Skip configuring the flow control state if it already matches. */
-        if ((state & PL_CRTSCTS) != (_state & PL_CRTSCTS)) {
+        if ((state & PL_S_CRTSCTS) != (_state & PL_S_CRTSCTS)) {
             bool crtscts = false;
-            if (state & (PL_CRTSCTS == PL_CRTSCTS)) {
+            if ((state & PL_S_CRTSCTS) == PL_S_CRTSCTS) {
                 crtscts = true;
             }
             
-            IOReturn ret = writeCP210xFlowControlConfig(false);
+            IOReturn ret = writeCP210xFlowControlConfig(crtscts);
             if (ret != kIOReturnSuccess) {
                 if (!haveLock)
                     IOLockUnlock(_lock);
@@ -367,7 +371,7 @@ IOReturn coop_plausible_driver_CP210x::setState(UInt32 state, UInt32 mask, void 
  * automatically.
  */
 IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock) {
-    LOG_DEBUG("Watch State");
+    LOG_DEBUG("watchState(0x%x, 0x%x, %p, %d)", *state, mask, refCon, (int)haveLock);
 
     if (!haveLock) {
         IOLockLock(_lock);
@@ -513,17 +517,21 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
  * Write the flow control configuration to the device.
  *
  * @param crtscts If true, enable RTS/CTS. If false, enable DTR/RTS.
+ *
+ * @warning Must be called with _lock held.
  */
 IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (bool crtscts) {
     /* Initialize the request data */
     uint32_t flowctrl[4];
 
     if (crtscts) {
+        LOG_DEBUG("Enabling CRTSCTS flow control");
         flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON | USLCOM_FLOW_CTS_HS);
 		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
 		flowctrl[2] = 0;
 		flowctrl[3] = 0;
     } else {
+        LOG_DEBUG("Enabling DTR/RTS with no flow control");
         flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
 		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_ON);
 		flowctrl[2] = 0;
@@ -856,7 +864,18 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
 
         case PD_E_FLOW_CONTROL:
             LOG_DEBUG("executeEvent(PD_E_FLOW_CONTROL, %x, %p)", data, refCon);
-            setState(data & PD_RS232_S_MASK, PD_RS232_S_MASK, refCon, true);
+
+            /* Validate the data */
+            if (data & ~PL_A_FLOWCONTROL_MASK) {
+                LOG_ERR("PD_E_FLOW_CONTROL called with invalid data");
+                ret = kIOReturnBadArgument;
+            }
+
+            /* Shift to PD_RS232_S_ */
+            data >>= PD_RS232_A_SHIFT;
+
+            /* Update state */
+            setState(data, PD_RS232_S_MASK, refCon, true);
             break;
 
         case PD_RS232_E_XON_BYTE:
@@ -1050,7 +1069,7 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
         }
 
         case PD_E_FLOW_CONTROL:
-            *data = _state & PD_RS232_S_MASK;
+            *data = _state << PD_RS232_A_SHIFT;
             LOG_DEBUG("requestEvent(PD_E_FLOW_CONTROL, %u, %p)", *data, refCon);
             break;
 
