@@ -457,12 +457,12 @@ IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, v
         _watchState |= mask;
         
         /* Wait to be signaled on a state change */
-        int rtn = IOLockSleep(_lock, &_stateEvent, THREAD_UNINT);
+        int rtn = IOLockSleep(_lock, &_stateEvent, THREAD_INTERRUPTIBLE);
         if (rtn == THREAD_TIMED_OUT) {
             if (!haveLock)
                 IOLockUnlock(_lock);
             return kIOReturnTimeout;
-        } else if (rtn != THREAD_INTERRUPTED) {
+        } else if (rtn == THREAD_INTERRUPTED) {
             if (!haveLock)
                 IOLockUnlock(_lock);
             return kIOReturnAborted;
