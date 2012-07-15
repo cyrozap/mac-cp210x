@@ -650,7 +650,15 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
             if (ret != kIOReturnSuccess) {
                 LOG_ERR("Set PD_E_ACTIVE (data=%u) failed: %u", data, ret);
-                break;
+
+                /* Only return an error on start. At stop time, the device
+                 * may have simply disappeared. */
+                if (!start) {
+                    break;
+                } else {
+                    LOG_ERR("Ignoring PD_E_ACTIVE error on stop");
+                    ret = kIOReturnSuccess;
+                }
             }
 
             /* Update state */
