@@ -623,12 +623,12 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             LOG_DEBUG("executeEvent(PD_E_ACTIVE, %u, %p)", data, refCon);
 
             /* Start or stop the UART */
-            bool start = data;
+            bool starting = data;
             
             /* Skip if already started, already stopped */
-            if (start && (_state & PD_S_ACTIVE) != 0) {
+            if (starting && (_state & PD_S_ACTIVE) != 0) {
                 break;
-            } else if (!start && (_state & PD_S_ACTIVE) == 0) {
+            } else if (!starting && (_state & PD_S_ACTIVE) == 0) {
                 break;
             }
 
@@ -641,7 +641,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             req.pData = NULL;
 
             stateMask = PD_S_ACTIVE;
-            if (start) {
+            if (starting) {
                 LOG_DEBUG("Enabling UART");
                 stateUpdate = PD_S_ACTIVE;
                 req.wValue = USLCOM_UART_ENABLE;
@@ -658,11 +658,12 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
 
                 /* Only return an error on start. At stop time, the device
                  * may have simply disappeared. */
-                if (!start) {
+                if (starting) {
                     break;
                 } else {
                     LOG_ERR("Ignoring PD_E_ACTIVE error on stop");
                     ret = kIOReturnSuccess;
+                    break;
                 }
             }
 
