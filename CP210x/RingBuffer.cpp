@@ -52,7 +52,7 @@ OSDefineMetaClassAndStructors(coop_plausible_CP210x_RingBuffer, super);
  *
  * @param capacity Total buffer capacity to be allocated, in bytes.
  */
-bool coop_plausible_CP210x_RingBuffer::init (vm_size_t capacity) {
+bool coop_plausible_CP210x_RingBuffer::init (uint32_t capacity) {
     _buf = (uint8_t *) IOMalloc(capacity);
 
     _capacity = capacity;
@@ -66,7 +66,7 @@ bool coop_plausible_CP210x_RingBuffer::init (vm_size_t capacity) {
 /**
  * Return the total capacity of the buffer in bytes.
  */
-size_t coop_plausible_CP210x_RingBuffer::getCapacity () {
+uint32_t coop_plausible_CP210x_RingBuffer::getCapacity () {
     return _capacity;
 }
 
@@ -74,7 +74,7 @@ size_t coop_plausible_CP210x_RingBuffer::getCapacity () {
  * Return the current number of bytes that are readable from
  * the buffer.
  */
-size_t coop_plausible_CP210x_RingBuffer::getLength () {
+uint32_t coop_plausible_CP210x_RingBuffer::getLength () {
     return _length;
 }
 
@@ -82,9 +82,9 @@ size_t coop_plausible_CP210x_RingBuffer::getLength () {
  * Read up to @a nbyte from the buffer into @a buf. The actual number of bytes
  * read will be returned, and will be 0 if the buffer is empty.
  */
-size_t coop_plausible_CP210x_RingBuffer::read (void *buf, size_t nbyte) {
+uint32_t coop_plausible_CP210x_RingBuffer::read (void *buf, uint32_t nbyte) {
     /* Determine the maximum readable amount */
-    size_t adjlen = MIN(nbyte, _length);
+    uint32_t adjlen = MIN(nbyte, _length);
 
     /* Truncate the length to what we can read before we hit the end of the buffer */
     adjlen = MIN(adjlen, _capacity - _readPos);
@@ -109,9 +109,9 @@ size_t coop_plausible_CP210x_RingBuffer::read (void *buf, size_t nbyte) {
  * Write up to @a len bytes from @a buf to the buffer. The number of bytes
  * written will be returned. If the buffer is full, 0 bytes will be written.
  */
-size_t coop_plausible_CP210x_RingBuffer::write (const void *buf, size_t len) {
+uint32_t coop_plausible_CP210x_RingBuffer::write (const void *buf, uint32_t len) {
     /* Determine the maximum writable amount */
-    size_t adjlen = MIN(len, _capacity - _length);
+    uint32_t adjlen = MIN(len, _capacity - _length);
 
     /* Truncate the length to what can fit before we hit the end of the buffer */
     adjlen = MIN(adjlen, _capacity - _writePos);

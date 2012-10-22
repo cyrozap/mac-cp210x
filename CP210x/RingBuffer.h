@@ -43,30 +43,30 @@ class coop_plausible_CP210x_RingBuffer : public OSObject {
     
 private:
     /** Total buffer capacity */
-    size_t _capacity;
+    uint32_t _capacity;
 
     /** Backing buffer. */
     uint8_t *_buf;
     
     /** Position of first readable element */
-    size_t _readPos;
+    uint32_t _readPos;
     
     /** Position of the first writable element */
-    size_t _writePos;
+    uint32_t _writePos;
     
     /** Length of available bytes */
-    size_t _length;
+    uint32_t _length;
     
 public:
 
-    virtual bool init (vm_size_t capacity);
+    virtual bool init (uint32_t capacity);
     virtual void free ();
 
-    size_t write (const void *buf, size_t len);
-    size_t read (void *buf, size_t nbyte);
+    uint32_t write (const void *buf, uint32_t len);
+    uint32_t read (void *buf, uint32_t nbyte);
 
-    size_t getCapacity ();
-    size_t getLength ();
+    uint32_t getCapacity ();
+    uint32_t getLength ();
 };
 
 #if DEBUG
