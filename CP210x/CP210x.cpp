@@ -1133,7 +1133,11 @@ IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, U
              * then continue writing. */
             if (sleep && *count < size) {
                 UInt32 reqState = ~PD_S_TXQ_FULL;
-                this->watchState(&reqState, PD_S_TXQ_FULL, refCon, true);
+                IOReturn ret;
+                if ((ret = this->watchState(&reqState, PD_S_TXQ_FULL, refCon, true)) != kIOReturnSuccess) {
+                    IOLockUnlock(_lock);
+                    return ret;
+                }
             } else {
                 /* Otherwise, break immediately. */
                 break;
@@ -1176,7 +1180,11 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
              * then continue reading. */
             if (*count < min) {
                 UInt32 reqState = ~PD_S_RXQ_EMPTY;
-                this->watchState(&reqState, PD_S_RXQ_EMPTY, refCon, true);
+                IOReturn ret;
+                if ((ret = this->watchState(&reqState, PD_S_RXQ_EMPTY, refCon, true)) != kIOReturnSuccess) {
+                    IOLockUnlock(_lock);
+                    return ret;
+                }
             } else {
                 /* Otherwise, break immediately. */
                 break;
