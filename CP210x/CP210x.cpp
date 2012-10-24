@@ -381,12 +381,9 @@ IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, v
         }
     }
 
-    /* Validate that at least one state is being observed. These return values match Apple's USBCDCDMM driver
-     * implementation, but it's unclear why a state of 0 returns kIOReturnBadARgument, while a mask of 0x0 is 
-     * considered valid. XXX TODO: Review further, this behavior seems buggy, even if it does match Apple's
-     * driver. */
-    if (state == 0) {
-        LOG_DEBUG("Watch request with 0 state");
+    /* Ensure that state is non-NULL */
+    if (state == NULL) {
+        LOG_DEBUG("Watch request with NULL state");
         return kIOReturnBadArgument;
     }
 
@@ -1113,15 +1110,83 @@ IOReturn coop_plausible_driver_CP210x::dequeueEvent(UInt32 *event, UInt32 *data,
 }
 
 // from IOSerialDriverSync
-IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, UInt32 * count, bool sleep, void *refCon) {
-    // TODO
-    return kIOReturnOffline;
+IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, UInt32 *count, bool sleep, void *refCon) {
+    IOLockLock(_lock);
+
+    /* Nothing to do if we're not active */
+    if ((_state & PD_S_ACTIVE) == 0) {
+        IOLockUnlock(_lock);
+        return kIOReturnNotOpen;
+    }
+
+    /* Perform the write, looping if the caller has requested that we sleep until all bytes are written */
+    *count = 0;
+    while (*count < size) {
+        uint32_t written = _txBuffer->write(buffer + *count, size - *count);
+        *count += written;
+
+        if (written == 0) {
+            /* Our TX buffer is now full. Mark it as such */
+            this->setState(PD_S_TXQ_FULL, PD_S_TXQ_FULL, refCon, true);
+
+            /* If requested by the caller, sleep until the transmit queue is no longer marked full, and
+             * then continue writing. */
+            if (sleep && *count < size) {
+                UInt32 reqState = ~PD_S_TXQ_FULL;
+                this->watchState(&reqState, PD_S_TXQ_FULL, refCon, true);
+            } else {
+                /* Otherwise, break immediately. */
+                break;
+            }
+        }
+    }
+
+    IOLockUnlock(_lock);
+
+    return kIOReturnSuccess;
 }
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon) {
-    // TODO
-    return kIOReturnOffline;
+    /* Sanity check the min value */
+    if (min > size) {
+        LOG_ERR("Called with a minimum required read size that exceeds the target buffer's total size");
+        return kIOReturnBadArgument;
+    }
+
+    IOLockLock(_lock);
+
+    /* Nothing to do if we're not active */
+    if ((_state & PD_S_ACTIVE) == 0) {
+        IOLockUnlock(_lock);
+        return kIOReturnNotOpen;
+    }
+    
+    /* Perform the read, looping if the caller has requested that we sleep until min bytes are written */
+    *count = 0;
+    while (*count < size) {
+        uint32_t nread = _rxBuffer->read(buffer + *count, size - *count);
+        *count += nread;
+
+        if (nread == 0) {
+            /* Our RX buffer is now empty. Mark it as such */
+            this->setState(PD_S_RXQ_EMPTY, PD_S_RXQ_EMPTY, refCon, true);
+            
+            /* If requested by the caller, sleep until the receive queue is no longer marked empty, and
+             * then continue reading. */
+            if (*count < min) {
+                UInt32 reqState = ~PD_S_RXQ_EMPTY;
+                this->watchState(&reqState, PD_S_RXQ_EMPTY, refCon, true);
+            } else {
+                /* Otherwise, break immediately. */
+                break;
+            }
+        }
+    }
+    
+    IOLockUnlock(_lock);
+    
+    return kIOReturnSuccess;
 }
 
 /* Private Methods */
