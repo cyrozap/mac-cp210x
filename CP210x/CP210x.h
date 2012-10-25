@@ -45,6 +45,12 @@ private:
     /** Backing USB interface provider. */
     IOUSBInterface *_provider;
 
+    /** Input pipe */
+    IOUSBPipe *_inputPipe;
+
+    /** Output pipe */
+    IOUSBPipe *_outputPipe;
+
     /** Our child serial nub. */
     coop_plausible_CP210x_SerialDevice *_serialDevice;
     

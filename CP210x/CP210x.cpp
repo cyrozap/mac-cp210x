@@ -108,6 +108,38 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         return false;
     }
     _provider->retain();
+    
+    /* Open USB interface */
+    _provider->open(this);
+
+
+    /* Find input endpoint */
+    IOUSBFindEndpointRequest inReq = {
+        .type = kUSBBulk,
+        .direction = kUSBIn,
+        .maxPacketSize = 0,
+        .interval = 0
+    };
+
+    _inputPipe = _provider->FindNextPipe(NULL, &inReq, true);
+    if (_inputPipe == NULL) {
+        LOG_ERR("Could not find input pipe");
+        return false;
+    }
+
+    /* Find output endpoint */
+    IOUSBFindEndpointRequest outReq = {
+        .type = kUSBBulk,
+        .direction = kUSBOut,
+        .maxPacketSize = 0,
+        .interval = 0
+    };
+    _outputPipe = _provider->FindNextPipe(NULL, &outReq, true);
+    if (_outputPipe == NULL) {
+        LOG_ERR("Could not find output pipe");
+        return false;
+    }
+
 
     /* Configure TX/RX buffers */
     _txBuffer = new coop_plausible_CP210x_RingBuffer();
@@ -149,10 +181,21 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
     _stopping = true;
 
     if (_provider != NULL) {
+        _provider->close(this);
         _provider->release();
         _provider = NULL;
     }
-    
+
+    if (_inputPipe != NULL) {
+        _inputPipe->release();
+        _inputPipe = NULL;
+    }
+
+    if (_outputPipe != NULL) {
+        _outputPipe->release();
+        _outputPipe = NULL;
+    }
+
     if (_serialDevice != NULL) {
         _serialDevice->release();
         _serialDevice = NULL;
