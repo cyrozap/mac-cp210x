@@ -79,6 +79,15 @@ uint32_t coop_plausible_CP210x_RingBuffer::getLength () {
 }
 
 /**
+ * Discard all buffered data.
+ */
+void coop_plausible_CP210x_RingBuffer::flush () {
+    _readPos = 0;
+    _writePos = 0;
+    _length = 0;
+}
+
+/**
  * Read up to @a nbyte from the buffer into @a buf. The actual number of bytes
  * read will be returned, and will be 0 if the buffer is empty.
  */
@@ -200,6 +209,19 @@ void coop_plausible_CP210x_RingBuffer_tests () {
     assertEquals(readbuf[1], 0xB, "Read incorrect data");
     assertEquals(readbuf[2], 0xA, "Read more data than requested");
     assertEquals(rbuf->getLength(), 0, "Buffer should be empty");
+    
+    /* Verify that flushing a buffer empties its contents, and that writing works after a flush. */
+    assertEquals(rbuf->write(readbuf, 3), 3, "Failed to write 2 bytes to buffer");
+    rbuf->flush();
+    assertEquals(rbuf->getLength(), 0, "Buffer length is not 0");
+
+    readbuf[0] = 0xA; readbuf[1] = 0xB; readbuf[2] = 0xC;
+    assertEquals(rbuf->write(readbuf, 3), 3, "Failed to write 2 bytes to buffer");
+
+    assertEquals(rbuf->read(readbuf, 3), 3, "Failed to read the expected 2 bytes");
+    assertEquals(readbuf[0], 0xA, "Read incorrect data");
+    assertEquals(readbuf[1], 0xB, "Read incorrect data");
+    assertEquals(readbuf[2], 0xC, "Read more data than requested");
 
 cleanup:
     if (rbuf != NULL)

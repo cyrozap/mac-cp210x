@@ -64,6 +64,7 @@ public:
 
     uint32_t write (const void *buf, uint32_t len);
     uint32_t read (void *buf, uint32_t nbyte);
+    void flush ();
 
     uint32_t getCapacity ();
     uint32_t getLength ();
