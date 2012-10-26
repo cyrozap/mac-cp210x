@@ -1157,6 +1157,77 @@ IOReturn coop_plausible_driver_CP210x::dequeueEvent(UInt32 *event, UInt32 *data,
     return kIOReturnNotOpen;
 }
 
+
+/**
+ * Update the PD_S_TXQ_* state flags based on the current state of the transmisson
+ * queue.
+ *
+ * @param refCon Reference constant.
+ * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
+ * automatically.
+ */
+void coop_plausible_driver_CP210x::updateTXQueueState (bool haveLock, void *refCon) {
+    if (!haveLock)
+        IOLockLock(_lock);
+
+    /*
+     * Determine the current value for PD_S_TXQ_FULL|PD_S_TXQ_EMPTY bits, one of:
+     * - Non-empty: 0
+     * - Non-empty (and full): PD_S_TXQ_FULL
+     * - Empty (and not full): PD_S_TXQ_EMPTY
+     */
+    if (_txBuffer->getLength() > 0) {
+        if (_txBuffer->getLength() == _txBuffer->getCapacity()) {
+            /* If full, mark as full, and clear the empty flags */
+            this->setState(PD_S_TXQ_FULL, PD_S_TXQ_FULL|PD_S_TXQ_EMPTY, NULL, true);
+        } else {
+            /* Otherwise, simply clear the empty AND the full flags */
+            this->setState(0, PD_S_TXQ_FULL|PD_S_TXQ_EMPTY, NULL, true);
+        }
+    } else {
+        /* Buffer is now empty, so we ought to set the empty flag, clear the full flag. */
+        this->setState(PD_S_TXQ_EMPTY, PD_S_TXQ_FULL|PD_S_TXQ_EMPTY, NULL, true);
+    }
+
+    if (!haveLock)
+        IOLockUnlock(_lock);
+}
+
+/**
+ * Update the PD_S_RXQ_* state flags based on the current state of the receive
+ * queue.
+ *
+ * @param refCon Reference constant.
+ * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
+ * automatically.
+ */
+void coop_plausible_driver_CP210x::updateRXQueueState (bool haveLock, void *refCon) {
+    if (!haveLock)
+        IOLockLock(_lock);
+    
+    /*
+     * Determine the current value for PD_S_RXQ_FULL|PD_S_RXQ_EMPTY bits, one of:
+     * - Non-empty: 0
+     * - Non-empty (and full): PD_S_RXQ_FULL
+     * - Empty (and not full): PD_S_RXQ_EMPTY
+     */
+    if (_rxBuffer->getLength() > 0) {
+        if (_rxBuffer->getLength() == _rxBuffer->getCapacity()) {
+            /* If full, mark as full, and clear the empty flags */
+            this->setState(PD_S_RXQ_FULL, PD_S_RXQ_FULL|PD_S_RXQ_EMPTY, NULL, true);
+        } else {
+            /* Otherwise, simply clear the empty AND the full flags */
+            this->setState(0, PD_S_RXQ_FULL|PD_S_RXQ_EMPTY, NULL, true);
+        }
+    } else {
+        /* Buffer is now empty, so we ought to set the empty flag, clear the full flag. */
+        this->setState(PD_S_RXQ_EMPTY, PD_S_RXQ_FULL|PD_S_RXQ_EMPTY, NULL, true);
+    }
+    
+    if (!haveLock)
+        IOLockUnlock(_lock);
+}
+
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, UInt32 *count, bool sleep, void *refCon) {
     IOLockLock(_lock);
@@ -1172,24 +1243,24 @@ IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, U
     while (*count < size) {
         uint32_t written = _txBuffer->write(buffer + *count, size - *count);
         *count += written;
+        
+        /* Update the transmission queue state */
+        this->updateTXQueueState(true, refCon);
 
-        if (written == 0) {
-            /* Our TX buffer is now full. Mark it as such */
-            this->setState(PD_S_TXQ_FULL, PD_S_TXQ_FULL, refCon, true);
-
-            /* If requested by the caller, sleep until the transmit queue is no longer marked full, and
-             * then continue writing. */
-            if (sleep && *count < size) {
-                UInt32 reqState = ~PD_S_TXQ_FULL;
-                IOReturn ret;
-                if ((ret = this->watchState(&reqState, PD_S_TXQ_FULL, refCon, true)) != kIOReturnSuccess) {
-                    IOLockUnlock(_lock);
-                    return ret;
-                }
-            } else {
-                /* Otherwise, break immediately. */
-                break;
+        /* If requested by the caller, and not all bytes have been written, sleep until the transmit queue is no
+         * longer marked full, and then continue writing. */
+        if (*count < size && sleep && _state & PD_S_TXQ_FULL) {
+            UInt32 reqState = 0;
+            IOReturn ret;
+            if ((ret = this->watchState(&reqState, PD_S_TXQ_FULL, refCon, true)) != kIOReturnSuccess) {
+                IOLockUnlock(_lock);
+                return ret;
             }
+            
+            
+        } else if (_state & PD_S_TXQ_FULL) {
+            /* If sleep was not requested, and the buffer is full, we can only exit the write loop. */
+            break;
         }
     }
 
@@ -1219,24 +1290,23 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
     while (*count < size) {
         uint32_t nread = _rxBuffer->read(buffer + *count, size - *count);
         *count += nread;
-
-        if (nread == 0) {
-            /* Our RX buffer is now empty. Mark it as such */
-            this->setState(PD_S_RXQ_EMPTY, PD_S_RXQ_EMPTY, refCon, true);
-            
-            /* If requested by the caller, sleep until the receive queue is no longer marked empty, and
-             * then continue reading. */
-            if (*count < min) {
-                UInt32 reqState = ~PD_S_RXQ_EMPTY;
-                IOReturn ret;
-                if ((ret = this->watchState(&reqState, PD_S_RXQ_EMPTY, refCon, true)) != kIOReturnSuccess) {
-                    IOLockUnlock(_lock);
-                    return ret;
-                }
-            } else {
-                /* Otherwise, break immediately. */
-                break;
+        
+        /* Update the transmission queue state */
+        this->updateTXQueueState(true, refCon);
+        
+        /* If requested by the caller, and not all bytes have been read, wait until the receive queue is no
+         * longer marked empty, and then continue reading. */
+        if (*count < min && _state & PD_S_RXQ_EMPTY) {
+            UInt32 reqState = 0;
+            IOReturn ret;
+            if ((ret = this->watchState(&reqState, PD_S_RXQ_EMPTY, refCon, true)) != kIOReturnSuccess) {
+                IOLockUnlock(_lock);
+                return ret;
             }
+            
+        } else if (_state & PD_S_RXQ_EMPTY) {
+            /* If sleep was not requested, and the buffer is empty, we can only exit the read loop. */
+            break;
         }
     }
     

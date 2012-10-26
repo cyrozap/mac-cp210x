@@ -129,6 +129,9 @@ public:
     virtual IOReturn dequeueData (UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon);
     
 private:
+    void updateTXQueueState (bool haveLock, void *refCon);
+    void updateRXQueueState (bool haveLock, void *refCon);
+
     IOReturn setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock);
     IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock);
 
