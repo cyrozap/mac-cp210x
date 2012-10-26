@@ -158,6 +158,13 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         LOG_ERR("Could not create RX buffer");
         return false;
     }
+    
+    
+    /* Initialize default state. This requires that the TX/RX buffers
+     * already be initialized. */
+    _state = 0;
+    this->updateRXQueueState(NULL, true);
+    this->updateTXQueueState(NULL, true);
 
     /* Create our child serial stream */
     _serialDevice = new coop_plausible_CP210x_SerialDevice();
@@ -267,6 +274,10 @@ IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
 
         /* Set initial port state */
         setState(PD_S_ACQUIRED, STATE_ALL, refCon, true);
+
+        /* Ensure that RX and TX queue states are up-to-date while we still hold the lock. */
+        updateRXQueueState(refCon, true);
+        updateTXQueueState(refCon, true);
     }
     IOLockUnlock(_lock);
 
@@ -291,8 +302,16 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
             return kIOReturnNotOpen;
         }
         
+        /* Clear all buffers */
+        _txBuffer->flush();
+        _rxBuffer->flush();
+
         /* Reset the state to closed */
         setState(0, STATE_ALL, refCon, true);
+
+        /* Ensure that RX and TX queue states are correct while we still hold the lock. */
+        updateRXQueueState(refCon, true);
+        updateTXQueueState(refCon, true);
     }
     IOLockUnlock(_lock);
 
@@ -1166,7 +1185,7 @@ IOReturn coop_plausible_driver_CP210x::dequeueEvent(UInt32 *event, UInt32 *data,
  * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
  * automatically.
  */
-void coop_plausible_driver_CP210x::updateTXQueueState (bool haveLock, void *refCon) {
+void coop_plausible_driver_CP210x::updateTXQueueState (void *refCon, bool haveLock) {
     if (!haveLock)
         IOLockLock(_lock);
 
@@ -1201,7 +1220,7 @@ void coop_plausible_driver_CP210x::updateTXQueueState (bool haveLock, void *refC
  * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
  * automatically.
  */
-void coop_plausible_driver_CP210x::updateRXQueueState (bool haveLock, void *refCon) {
+void coop_plausible_driver_CP210x::updateRXQueueState (void *refCon, bool haveLock) {
     if (!haveLock)
         IOLockLock(_lock);
     
@@ -1245,7 +1264,7 @@ IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, U
         *count += written;
         
         /* Update the transmission queue state */
-        this->updateTXQueueState(true, refCon);
+        this->updateTXQueueState(refCon, true);
 
         /* If requested by the caller, and not all bytes have been written, sleep until the transmit queue is no
          * longer marked full, and then continue writing. */
@@ -1292,7 +1311,7 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
         *count += nread;
         
         /* Update the transmission queue state */
-        this->updateTXQueueState(true, refCon);
+        this->updateTXQueueState(refCon, true);
         
         /* If requested by the caller, and not all bytes have been read, wait until the receive queue is no
          * longer marked empty, and then continue reading. */
