@@ -139,6 +139,11 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         LOG_ERR("Could not find output pipe");
         return false;
     }
+    _outputMaxPacketSize = outReq.maxPacketSize;
+    if (_outputMaxPacketSize == 0) {
+        LOG_ERR("Could not determine maximum output packet size, selecting minimum size of 8 bytes.");
+        _outputMaxPacketSize = 8;
+    }
 
 
     /* Configure TX/RX buffers */

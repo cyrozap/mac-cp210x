@@ -50,6 +50,9 @@ private:
 
     /** Output pipe */
     IOUSBPipe *_outputPipe;
+    
+    /** Output pipe's maximum packet size. */
+    UInt16 _outputMaxPacketSize;
 
     /** Our child serial nub. */
     coop_plausible_CP210x_SerialDevice *_serialDevice;
