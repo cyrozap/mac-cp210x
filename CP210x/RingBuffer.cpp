@@ -101,7 +101,7 @@ uint32_t coop_plausible_CP210x_RingBuffer::read (void *buf, uint32_t nbyte) {
 
     /* Perform the read and adjust the read position */
     memcpy(buf, _buf+_readPos, adjlen);
-    _writePos = (_readPos + adjlen) % _capacity;
+    _readPos = (_readPos + adjlen) % _capacity;
     _length -= adjlen;
     
     /* If more bytes can be read, use recursion to do so */
@@ -154,9 +154,9 @@ void coop_plausible_CP210x_RingBuffer::free () {
     } \
 } while (0);
 
-#define assertNotNull(expr, message, ...) assertTrue(expr != NULL, message, ## __VA_ARGS__)
+#define assertNotNull(expr, message, ...) assertTrue((expr) != NULL, message, ## __VA_ARGS__)
 
-#define assertEquals(expr, value, message, ...) assertTrue(expr == value, message __VA_ARGS__)
+#define assertEquals(expr, value, message, ...) assertTrue((expr == value), message __VA_ARGS__)
 
 void coop_plausible_CP210x_RingBuffer_tests () {
     uint8_t byte = 0xFF;
@@ -211,17 +211,29 @@ void coop_plausible_CP210x_RingBuffer_tests () {
     assertEquals(rbuf->getLength(), 0, "Buffer should be empty");
     
     /* Verify that flushing a buffer empties its contents, and that writing works after a flush. */
-    assertEquals(rbuf->write(readbuf, 3), 3, "Failed to write 2 bytes to buffer");
+    rbuf->flush();
+    assertEquals(rbuf->write(readbuf, 2), 2, "Failed to write 2 bytes to buffer");
     rbuf->flush();
     assertEquals(rbuf->getLength(), 0, "Buffer length is not 0");
 
-    readbuf[0] = 0xA; readbuf[1] = 0xB; readbuf[2] = 0xC;
-    assertEquals(rbuf->write(readbuf, 3), 3, "Failed to write 2 bytes to buffer");
+    readbuf[0] = 0xA; readbuf[1] = 0xB; readbuf[2] = 0xFF;
+    assertEquals(rbuf->write(readbuf, 2), 2, "Failed to write 4 bytes to buffer");
 
-    assertEquals(rbuf->read(readbuf, 3), 3, "Failed to read the expected 2 bytes");
+    assertEquals(rbuf->read(readbuf, 2), 2, "Failed to read the expected 2 bytes");
     assertEquals(readbuf[0], 0xA, "Read incorrect data");
     assertEquals(readbuf[1], 0xB, "Read incorrect data");
-    assertEquals(readbuf[2], 0xC, "Read more data than requested");
+    assertEquals(readbuf[2], 0xFF, "Read more data than requested");
+
+    /* Refill the buffer, and verify that single byte reads advance the read position */
+    rbuf->flush();
+    readbuf[0] = 0xA; readbuf[1] = 0xB; readbuf[2] = 0xFF;
+    assertEquals(rbuf->write(readbuf, 2), 2, "Failed to write 2 bytes to buffer");
+
+    assertEquals(rbuf->read(readbuf+0, 1), 1, "Failed to read the expected 1 byte");
+    assertEquals(rbuf->read(readbuf+1, 1), 1, "Failed to read the expected 1 byte");
+
+    assertEquals(readbuf[0], 0xA, "Read incorrect data");
+    assertEquals(readbuf[1], 0xB, "Read incorrect data");
 
 cleanup:
     if (rbuf != NULL)
