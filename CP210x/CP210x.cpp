@@ -59,6 +59,10 @@ OSDefineMetaClassAndStructors(coop_plausible_driver_CP210x, super);
 /** Mask on all state values that may be exposed externally */
 #define STATE_EXTERNAL (PD_S_MASK | (PD_RS232_S_MASK & ~PD_RS232_S_LOOP))
 
+/* Default read timeout in seconds */
+#define READ_TIMEOUT 10 * 1000
+
+#pragma mark Lifecycle Management
 
 // from IOService base class 
 IOService *coop_plausible_driver_CP210x::probe (IOService *provider, SInt32 *score) {
@@ -125,6 +129,11 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     if (_inputPipe == NULL) {
         LOG_ERR("Could not find input pipe");
         return false;
+    }
+    _inputMaxPacketSize = inReq.maxPacketSize;
+    if (_inputMaxPacketSize == 0) {
+        LOG_ERR("Could not determine maximum input packet size, selecting minimum size of 8 bytes.");
+        _inputMaxPacketSize = 8;
     }
 
     /* Find output endpoint */
@@ -199,11 +208,13 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
     }
 
     if (_inputPipe != NULL) {
+        _inputPipe->Abort();
         _inputPipe->release();
         _inputPipe = NULL;
     }
 
     if (_outputPipe != NULL) {
+        _outputPipe->Abort();
         _outputPipe->release();
         _outputPipe = NULL;
     }
@@ -278,6 +289,9 @@ IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
         /* Ensure that RX and TX queue states are up-to-date while we still hold the lock. */
         updateRXQueueState(refCon, true);
         updateTXQueueState(refCon, true);
+
+        /* Start asynchronous reading */
+        this->startReceive(refCon, true);
     }
     IOLockUnlock(_lock);
 
@@ -301,7 +315,11 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
             IOLockUnlock(_lock);
             return kIOReturnNotOpen;
         }
-        
+
+        /* Abort I/O */
+        _outputPipe->Abort();
+        _inputPipe->Abort();
+
         /* Clear all buffers */
         _txBuffer->flush();
         _rxBuffer->flush();
@@ -317,6 +335,8 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
 
     return kIOReturnSuccess;
 }
+
+#pragma mark State Management
 
 // from IOSerialDriverSync
 UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
@@ -552,6 +572,8 @@ IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, v
 IOReturn coop_plausible_driver_CP210x::watchState(UInt32 *state, UInt32 mask, void *refCon) {
     return watchState(state, mask, refCon, false);
 }
+
+#pragma mark Configuration
 
 // from IOSerialDriverSync
 UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
@@ -1155,6 +1177,7 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
     return ret;
 }
 
+#pragma mark Event Queueing
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::enqueueEvent(UInt32 event, UInt32 data, bool sleep, void *refCon) {
@@ -1166,16 +1189,285 @@ IOReturn coop_plausible_driver_CP210x::dequeueEvent(UInt32 *event, UInt32 *data,
     /* Since we don't impelement event reporting from nextEvent(), this implementation is not required
      * to provide a queued event. We return success if the port is open and the arguments
      * are not invalid. */
-
+    
     if (event == NULL || data == NULL)
         return kIOReturnBadArgument;
-
+    
     if (getState(refCon) & PD_S_ACTIVE)
         return kIOReturnSuccess;
-
+    
     return kIOReturnNotOpen;
 }
 
+
+#pragma mark RX/TX
+
+// IOUSBCompletion transmit receive handler.
+void coop_plausible_driver_CP210x::receiveHandler (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining) {
+    /* MEMORY WARNING: If aborted, this reference may now be invalid */
+    coop_plausible_driver_CP210x *me = (coop_plausible_driver_CP210x *) target;
+
+    /* MEMORY WARNING: This was retained in startReceive(), and we are responsible for releasing it */
+    IOBufferMemoryDescriptor *mem = (IOBufferMemoryDescriptor *) parameter;
+    
+    /* If our transfer was aborted, our reference to the target may no longer be valid */
+    if (status == kIOReturnAborted) {
+        mem->release();
+        return;
+    }
+
+    IOLockLock(me->_lock);
+    
+    if (status == kIOUSBPipeStalled) {
+        LOG_ERR("Read IOUSBPipe stalled, resetting.\n");
+        me->_inputPipe->ClearPipeStall(true);
+    }
+    
+    if (status == kIOReturnOverrun) {
+        LOG_ERR("Read IOUSBPipe overran buffer, resetting. Lost data.\n");
+        me->_inputPipe->ClearPipeStall(true);
+    }
+
+    /* Append the new data. This -must- fit, as the data request size is never larger than the
+     * amount of available space in our RX buffer. */
+    UInt32 length = (uint32_t) (mem->getLength() - bufferSizeRemaining);
+    assert(length < UINT32_MAX);
+
+    if (length > 0) {
+        uint32_t written = me->_rxBuffer->write(mem->getBytesNoCopy(), length);
+        if (written != length) {
+            /* This should never happen */
+            LOG_ERR("Bug in receiveHandler()! More bytes were received than buffer space exists. Lost %lu bytes", (unsigned long) (written - mem->getLength()));
+        }
+    }
+    
+    /* Clean up the memory buffer */
+    mem->release();
+
+    /* Update the queue state */
+    me->updateRXQueueState(NULL, true);
+
+    /* Mark ourselves as finished */
+    me->setState(0, PD_S_RX_BUSY, NULL, true);
+
+    /* Let startReceive determine if we need to receive again before we relinquish our lock. */
+    me->startReceive(NULL, true);
+
+    IOLockUnlock(me->_lock);
+}
+
+/**
+ * Attempt to read any available bytes from our input IOUSBPipe to the receive buffer. If a receive operation is already in
+ * progress, or the receive queue is full, this function will immediately return.
+ *
+ * @param refCon Reference constant.
+ * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
+ * automatically.
+ */
+IOReturn coop_plausible_driver_CP210x::startReceive (void *refCon, bool haveLock) {
+    if (!haveLock)
+        IOLockLock(_lock);
+    
+    
+    /* Nothing to do if we're not active */
+    if ((_state & PD_S_ACTIVE) == 0) {
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        return kIOReturnNotOpen;
+    }
+    
+    /* If a receive is already in progress, we have nothing to schedule. */
+    if (_state & PD_S_RX_BUSY) {
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        
+        return kIOReturnSuccess;
+    }
+    
+    /* If the receive queue is full, we have nothing to schedule. */
+    if (_state & PD_S_RXQ_FULL) {
+        assert(_rxBuffer->getLength() == _rxBuffer->getCapacity());
+        
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        
+        return kIOReturnSuccess;
+    }
+    
+    /* Otherwise, mark ourselves as busy */
+    this->setState(PD_S_RX_BUSY, PD_S_RX_BUSY, refCon, true);
+
+    /* Prepare our read buffer, using the available _rxBuffer space as our buffer's maximum capacity. MEMORY WARNING:
+     * except in case of error, this buffer is released in our completion handler. */
+    IOReturn ret = kIOReturnSuccess;
+    
+    uint32_t bufferAvail = _rxBuffer->getCapacity() - _rxBuffer->getLength();
+    uint32_t nread = _inputMaxPacketSize;
+    if (_inputMaxPacketSize > bufferAvail)
+        nread = bufferAvail;
+
+    IOBufferMemoryDescriptor *mem = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task, kIODirectionIn, nread);
+    if ((ret = mem->prepare()) != kIOReturnSuccess) {
+        LOG_ERR("IOReturn=%d in IOBufferMemoryDescriptor::prepare(), receive queue may now stall.", ret);
+
+        /* Mark ourselves as no longer busy */
+        this->setState(0, PD_S_RX_BUSY, refCon, true);
+        
+        /* Clean up our lock */
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        
+        /* Clean up the buffer */
+        mem->release();
+
+        return ret;
+    }
+    
+    /* Issue our transmit request. We unlock our mutex to avoid any chance of a dead-lock, and retain
+     * the outputPipe to ensure that it is not deallocated out from under us. */
+    IOUSBCompletion handler = {
+        .target = this,
+        .action = receiveHandler,
+        .parameter = mem
+    };
+
+    _inputPipe->retain();
+    IOLockUnlock(_lock); {
+        ret = _inputPipe->Read(mem, READ_TIMEOUT, READ_TIMEOUT, &handler);
+    } IOLockLock(_lock);
+    _inputPipe->release();
+
+    if (ret != kIOReturnSuccess) {
+        LOG_ERR("IOReturn=%d in IOUSBPipe::Read(), receive queue may now stall.", ret);
+        mem->release();
+    }
+
+    if (!haveLock)
+        IOLockUnlock(_lock);
+    
+    return ret;
+}
+
+// IOUSBCompletion transmit result handler.
+void coop_plausible_driver_CP210x::transmitHandler (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining) {
+    /* If our transfer was aborted, our reference to the target may no longer be valid */
+    if (status == kIOReturnAborted)
+        return;
+
+    coop_plausible_driver_CP210x *me = (coop_plausible_driver_CP210x *) target;
+    IOLockLock(me->_lock);
+    
+    /* If our transfer stalled, clear the stall now */
+    if (status == kIOUSBPipeStalled) {
+        LOG_ERR("Write IOUSBPipe stalled, resetting.\n");
+        me->_outputPipe->ClearPipeStall(true);
+    }
+
+    /* Update the queue state */
+    me->updateTXQueueState(NULL, true);
+
+    /* Mark ourselves as finished */
+    me->setState(0, PD_S_TX_BUSY, NULL, true);
+    
+    /* Let startTransmit determine if we need to transmit again before we relinquish our lock. */
+    me->startTransmit(NULL, true);
+
+    IOLockUnlock(me->_lock);
+}
+
+/**
+ * Attempt to write all available bytes from the transmit queue to our output IOUSBPipe. If a transmission is already in
+ * progress, it will automatically handle any new data appended to the transmit buffer after it has started, and this
+ * function will immediately return.
+ *
+ * @param refCon Reference constant.
+ * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
+ * automatically.
+ */
+IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon, bool haveLock) {
+    if (!haveLock)
+        IOLockLock(_lock);
+    
+    
+    /* Nothing to do if we're not active */
+    if ((_state & PD_S_ACTIVE) == 0) {
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        return kIOReturnNotOpen;
+    }
+
+    /* If a transmit is already in progress, we have nothing to schedule. */
+    if (_state & PD_S_TX_BUSY) {
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        
+        return kIOReturnSuccess;
+    }
+
+    /* If the transmit queue is empty, we have nothing to schedule. */
+    if (_state & PD_S_TXQ_EMPTY) {
+        assert(_txBuffer->getLength() == 0);
+
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        
+        return kIOReturnSuccess;
+    }
+
+    /* Otherwise, mark ourselves as busy */
+    this->setState(PD_S_TX_BUSY, PD_S_TX_BUSY, refCon, true);
+    
+    
+    /* Prepare our IO buffer. */
+    IOReturn ret = kIOReturnSuccess;
+
+    IOBufferMemoryDescriptor *mem = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task, kIODirectionOut, _outputMaxPacketSize);
+    uint32_t nbytes = _txBuffer->read(mem->getBytesNoCopy(), _outputMaxPacketSize);
+    mem->setLength(nbytes);
+
+    if ((ret = mem->prepare()) != kIOReturnSuccess) {
+        LOG_ERR("IOReturn=%d in IOBufferMemoryDescriptor::prepare(), lost %lu bytes from write queue", ret, (unsigned long) nbytes);
+
+        
+        /* Mark ourselves as no longer busy */
+        this->setState(0, PD_S_TX_BUSY, refCon, true);
+        
+        /* Clean up our lock */
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        
+        /* Clean up the buffer */
+        mem->release();
+
+        return ret;
+    }
+
+    /* Issue our transmit request. We unlock our mutex to avoid any chance of a dead-lock, and retain
+     * the outputPipe to ensure that it is not deallocated out from under us. */
+    IOUSBCompletion handler = {
+        .target = this,
+        .action = transmitHandler,
+        .parameter = NULL
+    };
+
+    _outputPipe->retain();
+    IOLockUnlock(_lock); {
+        ret = _outputPipe->Write(mem, 1000, 1000, &handler);
+    } IOLockLock(_lock);
+    _outputPipe->release();
+
+    if (ret != kIOReturnSuccess) {
+        LOG_ERR("IOReturn=%d in IOUSBPipe::Write(), lost %lu bytes from write queue", ret, (unsigned long) nbytes);
+    }
+
+    /* Clean up our IO buffer */
+    mem->release();
+
+    if (!haveLock)
+        IOLockUnlock(_lock);
+
+    return ret;
+}
 
 /**
  * Update the PD_S_TXQ_* state flags based on the current state of the transmisson
@@ -1283,6 +1575,11 @@ IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, U
         }
     }
 
+    /* If data was written, enable transmission. */
+    if (*count > 0) {
+        this->startTransmit(refCon, true);
+    }
+
     IOLockUnlock(_lock);
 
     return kIOReturnSuccess;
@@ -1311,8 +1608,11 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
         *count += nread;
         
         /* Update the transmission queue state */
-        this->updateTXQueueState(refCon, true);
-        
+        this->updateRXQueueState(refCon, true);
+
+        /* Our read may have freed sufficient space to allow additional USB read requests. */
+        this->startReceive(refCon, true);
+
         /* If requested by the caller, and not all bytes have been read, wait until the receive queue is no
          * longer marked empty, and then continue reading. */
         if (*count < min && _state & PD_S_RXQ_EMPTY) {

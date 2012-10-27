@@ -48,6 +48,9 @@ private:
     /** Input pipe */
     IOUSBPipe *_inputPipe;
 
+    /** Input pipe's maximum packet size. */
+    UInt16 _inputMaxPacketSize;
+
     /** Output pipe */
     IOUSBPipe *_outputPipe;
     
@@ -131,6 +134,12 @@ public:
 private:
     void updateTXQueueState (void *refCon, bool haveLock);
     void updateRXQueueState (void *refCon, bool haveLock);
+    
+    static void receiveHandler (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining);
+    IOReturn startReceive (void *refCon, bool haveLock);
+
+    static void transmitHandler (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining);
+    IOReturn startTransmit (void *refCon, bool haveLock);
 
     IOReturn setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock);
     IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock);
