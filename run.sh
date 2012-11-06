@@ -1,10 +1,12 @@
 #!/bin/sh
 
-TARGET=$1
+CONFIG=$1
+TARGET=$2
 BUNDLE="coop.plausible.CP210x"
 
-if [ -z "${TARGET}" ]; then
-    echo "Specify a remote target or 'localhost'"
+if [ -z "${CONFIG}" ] || [ -z "${TARGET}" ]; then
+    echo "Usage: $0 <build config> <target>"
+    echo "Target may either be 'localhost', or a remote system to which you have ssh and sudo access"
     exit 1
 fi
 
@@ -37,7 +39,7 @@ function unload_kext () {
     fi
 }
 
-xcodebuild -configuration Debug -target CP210x
+xcodebuild -configuration "${CONFIG}" -target CP210x
 if [ "$?" != 0 ]; then
     exit 1
 fi
@@ -46,7 +48,7 @@ fi
 unload_kext
 
 remote sudo rm -rf CP210x.kext
-rsync -avz build/Debug/CP210x.kext ${RSYNC_TARGET} &&
+rsync -avz "build/${CONFIG}/CP210x.kext" ${RSYNC_TARGET} &&
     remote sudo chown -R root:wheel CP210x.kext &&
     remote sudo kextload CP210x.kext &&
     echo "kext loaded"
