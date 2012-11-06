@@ -172,8 +172,8 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     /* Initialize default state. This requires that the TX/RX buffers
      * already be initialized. */
     _state = 0;
-    this->updateRXQueueState(NULL, true);
-    this->updateTXQueueState(NULL, true);
+    this->updateRXQueueState(NULL);
+    this->updateTXQueueState(NULL);
 
     /* Create our child serial stream */
     _serialDevice = new coop_plausible_CP210x_SerialDevice();
@@ -194,31 +194,57 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     return true;
 }
 
-// from IOService base class
-void coop_plausible_driver_CP210x::stop (IOService *provider) {
-    LOG_DEBUG("Driver stopping");
+/**
+ * Abort all transfers, and close all references to our providers, and prepare
+ * the driver for termination.
+ *
+ * May be called multiple times; additional requests will be ignored.
+ *
+ * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
+ * automatically.
+ */
+void coop_plausible_driver_CP210x::handleTermination (bool haveLock) {
+    if (!haveLock)
+        IOLockLock(_lock);
     
-    IOLockLock(_lock);
-    _stopping = true;
+    /* Avoid multiple execution.
+     *
+     * We're called directly from didTerminate to trigger cleanup of
+     * our reference to our provider, in which case we'll also be called
+     * again from our own stop() implementation.
+     *
+     * TODO: Is there any way for stop() to be called without didTerminate() being
+     * called? If not, we can eliminate the call to handleTermination() from stop().
+     */
+    if (_stopping) {
+        if (!haveLock)
+            IOLockUnlock(_lock);
+        return;
+    }
+    
+    LOG_DEBUG("handleTermination()");
+
+    /* Wake up any waiting threads. This will set the _stopping flag */
+    this->setStopping();
 
     if (_provider != NULL) {
         _provider->close(this);
         _provider->release();
         _provider = NULL;
     }
-
+    
     if (_inputPipe != NULL) {
         _inputPipe->Abort();
         _inputPipe->release();
         _inputPipe = NULL;
     }
-
+    
     if (_outputPipe != NULL) {
         _outputPipe->Abort();
         _outputPipe->release();
         _outputPipe = NULL;
     }
-
+    
     if (_serialDevice != NULL) {
         _serialDevice->release();
         _serialDevice = NULL;
@@ -234,15 +260,28 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
         _rxBuffer = NULL;
     }
     
-    IOLockUnlock(_lock);
-
+    if (!haveLock)
+        IOLockUnlock(_lock);
+    
     LOG_DEBUG("Driver stopped");
+}
+
+// from IOService base class
+void coop_plausible_driver_CP210x::stop (IOService *provider) {    
+    handleTermination(false);
     super::stop(provider);
+}
+
+// from IOService base class;
+bool coop_plausible_driver_CP210x::didTerminate (IOService *provider, IOOptionBits options, bool *defer) {
+    LOG_DEBUG("didTerminate()");
+    handleTermination(false);
+    return super::didTerminate(provider, options, defer);
 }
 
 // from IOService base class
 void coop_plausible_driver_CP210x::free (void) {
-    LOG_DEBUG("free\n");    
+    LOG_DEBUG("free\n");
 
     if (_lock != NULL) {
         IOLockFree(_lock);
@@ -287,11 +326,11 @@ IOReturn coop_plausible_driver_CP210x::acquirePort(bool sleep, void *refCon) {
         setState(PD_S_ACQUIRED, STATE_ALL, refCon, true);
 
         /* Ensure that RX and TX queue states are up-to-date while we still hold the lock. */
-        updateRXQueueState(refCon, true);
-        updateTXQueueState(refCon, true);
+        updateRXQueueState(refCon);
+        updateTXQueueState(refCon);
 
         /* Start asynchronous reading */
-        this->startReceive(refCon, true);
+        this->startReceive(refCon);
     }
     IOLockUnlock(_lock);
 
@@ -328,8 +367,8 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
         setState(0, STATE_ALL, refCon, true);
 
         /* Ensure that RX and TX queue states are correct while we still hold the lock. */
-        updateRXQueueState(refCon, true);
-        updateTXQueueState(refCon, true);
+        updateRXQueueState(refCon);
+        updateTXQueueState(refCon);
     }
     IOLockUnlock(_lock);
 
@@ -337,6 +376,24 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
 }
 
 #pragma mark State Management
+
+/**
+ * Mark the driver as stopped. This will wake up any background threads blocked on our internal
+ * semaphore, at which point they will check the _stopping flag and terminate gracefully.
+ *
+ * @warning This method must be called with _lock held.
+ * @warning This method must only be called once.
+ */
+void coop_plausible_driver_CP210x::setStopping (void) {
+    LOG_DEBUG("setStopping()");
+
+    /* Mark driver as stopped */
+    assert(!_stopping);
+    _stopping = true;
+
+    /* Wake up all waiting threads. */
+    IOLockWakeup(_lock, &_stateEvent, false);
+}
 
 // from IOSerialDriverSync
 UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
@@ -456,7 +513,19 @@ IOReturn coop_plausible_driver_CP210x::setState(UInt32 state, UInt32 mask, void 
  */
 IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock) {
     LOG_DEBUG("watchState(0x%x, 0x%x, %p, %d)", *state, mask, refCon, (int)haveLock);
+    
+    /* Ensure that state is non-NULL */
+    if (state == NULL) {
+        LOG_DEBUG("Watch request with NULL state");
+        return kIOReturnBadArgument;
+    }
+    
+    if (mask == 0) {
+        LOG_DEBUG("Watch request with 0 mask");
+        return kIOReturnSuccess;
+    }
 
+    /* Acquire our lock */
     if (!haveLock) {
         IOLockLock(_lock);
 
@@ -466,17 +535,6 @@ IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, v
             IOLockUnlock(_lock);
             return kIOReturnOffline;
         }
-    }
-
-    /* Ensure that state is non-NULL */
-    if (state == NULL) {
-        LOG_DEBUG("Watch request with NULL state");
-        return kIOReturnBadArgument;
-    }
-
-    if (mask == 0) {
-        LOG_DEBUG("Watch request with 0 mask");
-        return kIOReturnSuccess;
     }
     
     /* Limit mask to EXTERNAL_MASK. There are no comments or documentation describing why this is
@@ -555,7 +613,8 @@ IOReturn coop_plausible_driver_CP210x::watchState (UInt32 *state, UInt32 mask, v
         /* Check if we've been stopped while the lock was relinquished. */
         if (_stopping) {
             LOG_DEBUG("watchState() - offline (stopping) after IOLockSleep");
-            IOLockUnlock(_lock);
+            if (!haveLock)
+                IOLockUnlock(_lock);
             return kIOReturnOffline;
         }
     }
@@ -740,14 +799,13 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             /* Issue request */
             ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
             if (ret != kIOReturnSuccess) {
-                LOG_ERR("Set PD_E_ACTIVE (data=%u) failed: %u", data, ret);
-
                 /* Only return an error on start. At stop time, the device
                  * may have simply disappeared. */
                 if (starting) {
+                    LOG_ERR("Set PD_E_ACTIVE (data=%u) failed: %u", data, ret);
                     break;
                 } else {
-                    LOG_ERR("Ignoring PD_E_ACTIVE error on stop");
+                    LOG_DEBUG("Ignoring PD_E_ACTIVE error %u on stop. The device was likely unplugged.", ret);
                     ret = kIOReturnSuccess;
                     break;
                 }
@@ -1218,6 +1276,14 @@ void coop_plausible_driver_CP210x::receiveHandler (void *target, void *parameter
 
     IOLockLock(me->_lock);
     
+    /* Verify that the driver has not been stopped while the lock was not held */
+    if (me->_stopping) {
+        LOG_DEBUG("receiveHandler() - offline (stopping)");
+        mem->release();
+        IOLockUnlock(me->_lock);
+        return;
+    }
+    
     if (status == kIOUSBPipeStalled) {
         LOG_ERR("Read IOUSBPipe stalled, resetting.\n");
         me->_inputPipe->ClearPipeStall(true);
@@ -1245,13 +1311,13 @@ void coop_plausible_driver_CP210x::receiveHandler (void *target, void *parameter
     mem->release();
 
     /* Update the queue state */
-    me->updateRXQueueState(NULL, true);
+    me->updateRXQueueState(NULL);
 
     /* Mark ourselves as finished */
     me->setState(0, PD_S_RX_BUSY, NULL, true);
 
     /* Let startReceive determine if we need to receive again before we relinquish our lock. */
-    me->startReceive(NULL, true);
+    me->startReceive(NULL);
 
     IOLockUnlock(me->_lock);
 }
@@ -1261,36 +1327,23 @@ void coop_plausible_driver_CP210x::receiveHandler (void *target, void *parameter
  * progress, or the receive queue is full, this function will immediately return.
  *
  * @param refCon Reference constant.
- * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
- * automatically.
+ *
+ * @warning Must be called with _lock held.
  */
-IOReturn coop_plausible_driver_CP210x::startReceive (void *refCon, bool haveLock) {
-    if (!haveLock)
-        IOLockLock(_lock);
-    
-    
+IOReturn coop_plausible_driver_CP210x::startReceive (void *refCon) {
     /* Nothing to do if we're not active */
     if ((_state & PD_S_ACTIVE) == 0) {
-        if (!haveLock)
-            IOLockUnlock(_lock);
         return kIOReturnNotOpen;
     }
     
     /* If a receive is already in progress, we have nothing to schedule. */
     if (_state & PD_S_RX_BUSY) {
-        if (!haveLock)
-            IOLockUnlock(_lock);
-        
         return kIOReturnSuccess;
     }
     
     /* If the receive queue is full, we have nothing to schedule. */
     if (_state & PD_S_RXQ_FULL) {
         assert(_rxBuffer->getLength() == _rxBuffer->getCapacity());
-        
-        if (!haveLock)
-            IOLockUnlock(_lock);
-        
         return kIOReturnSuccess;
     }
     
@@ -1313,10 +1366,6 @@ IOReturn coop_plausible_driver_CP210x::startReceive (void *refCon, bool haveLock
         /* Mark ourselves as no longer busy */
         this->setState(0, PD_S_RX_BUSY, refCon, true);
         
-        /* Clean up our lock */
-        if (!haveLock)
-            IOLockUnlock(_lock);
-        
         /* Clean up the buffer */
         mem->release();
 
@@ -1331,19 +1380,23 @@ IOReturn coop_plausible_driver_CP210x::startReceive (void *refCon, bool haveLock
         .parameter = mem
     };
 
-    _inputPipe->retain();
+    IOUSBPipe *inputPipe = _inputPipe;
+    inputPipe->retain();
     IOLockUnlock(_lock); {
-        ret = _inputPipe->Read(mem, READ_TIMEOUT, READ_TIMEOUT, &handler);
+        ret = inputPipe->Read(mem, READ_TIMEOUT, READ_TIMEOUT, &handler);
     } IOLockLock(_lock);
-    _inputPipe->release();
+    inputPipe->release();
+    
+    /* Verify that the driver was not been stopped while the lock was not held */
+    if (_stopping) {
+        LOG_DEBUG("requestEvent() - offline (stopping)");
+        return kIOReturnOffline;
+    }
 
     if (ret != kIOReturnSuccess) {
         LOG_ERR("IOReturn=%d in IOUSBPipe::Read(), receive queue may now stall.", ret);
         mem->release();
     }
-
-    if (!haveLock)
-        IOLockUnlock(_lock);
     
     return ret;
 }
@@ -1364,13 +1417,13 @@ void coop_plausible_driver_CP210x::transmitHandler (void *target, void *paramete
     }
 
     /* Update the queue state */
-    me->updateTXQueueState(NULL, true);
+    me->updateTXQueueState(NULL);
 
     /* Mark ourselves as finished */
     me->setState(0, PD_S_TX_BUSY, NULL, true);
     
     /* Let startTransmit determine if we need to transmit again before we relinquish our lock. */
-    me->startTransmit(NULL, true);
+    me->startTransmit(NULL);
 
     IOLockUnlock(me->_lock);
 }
@@ -1381,36 +1434,23 @@ void coop_plausible_driver_CP210x::transmitHandler (void *target, void *paramete
  * function will immediately return.
  *
  * @param refCon Reference constant.
- * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
- * automatically.
+ *
+ * @warning Must be called with _lock held.
  */
-IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon, bool haveLock) {
-    if (!haveLock)
-        IOLockLock(_lock);
-    
-    
+IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon) {
     /* Nothing to do if we're not active */
     if ((_state & PD_S_ACTIVE) == 0) {
-        if (!haveLock)
-            IOLockUnlock(_lock);
         return kIOReturnNotOpen;
     }
 
     /* If a transmit is already in progress, we have nothing to schedule. */
     if (_state & PD_S_TX_BUSY) {
-        if (!haveLock)
-            IOLockUnlock(_lock);
-        
         return kIOReturnSuccess;
     }
 
     /* If the transmit queue is empty, we have nothing to schedule. */
     if (_state & PD_S_TXQ_EMPTY) {
         assert(_txBuffer->getLength() == 0);
-
-        if (!haveLock)
-            IOLockUnlock(_lock);
-        
         return kIOReturnSuccess;
     }
 
@@ -1432,10 +1472,6 @@ IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon, bool haveLoc
         /* Mark ourselves as no longer busy */
         this->setState(0, PD_S_TX_BUSY, refCon, true);
         
-        /* Clean up our lock */
-        if (!haveLock)
-            IOLockUnlock(_lock);
-        
         /* Clean up the buffer */
         mem->release();
 
@@ -1450,11 +1486,18 @@ IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon, bool haveLoc
         .parameter = NULL
     };
 
-    _outputPipe->retain();
+    IOUSBPipe *outputPipe = _outputPipe;
+    outputPipe->retain();
     IOLockUnlock(_lock); {
-        ret = _outputPipe->Write(mem, 1000, 1000, &handler);
+        ret = outputPipe->Write(mem, 1000, 1000, &handler);
     } IOLockLock(_lock);
-    _outputPipe->release();
+    outputPipe->release();
+    
+    /* Verify that the driver was not stopped while the lock was not held */
+    if (_stopping) {
+        LOG_DEBUG("requestEvent() - offline (stopping)");
+        return kIOReturnOffline;
+    }
 
     if (ret != kIOReturnSuccess) {
         LOG_ERR("IOReturn=%d in IOUSBPipe::Write(), lost %lu bytes from write queue", ret, (unsigned long) nbytes);
@@ -1462,9 +1505,6 @@ IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon, bool haveLoc
 
     /* Clean up our IO buffer */
     mem->release();
-
-    if (!haveLock)
-        IOLockUnlock(_lock);
 
     return ret;
 }
@@ -1474,13 +1514,10 @@ IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon, bool haveLoc
  * queue.
  *
  * @param refCon Reference constant.
- * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
- * automatically.
+ *
+ * @warning Must be called with _lock held.
  */
-void coop_plausible_driver_CP210x::updateTXQueueState (void *refCon, bool haveLock) {
-    if (!haveLock)
-        IOLockLock(_lock);
-
+void coop_plausible_driver_CP210x::updateTXQueueState (void *refCon) {
     /*
      * Determine the current value for PD_S_TXQ_FULL|PD_S_TXQ_EMPTY bits, one of:
      * - Non-empty: 0
@@ -1499,9 +1536,6 @@ void coop_plausible_driver_CP210x::updateTXQueueState (void *refCon, bool haveLo
         /* Buffer is now empty, so we ought to set the empty flag, clear the full flag. */
         this->setState(PD_S_TXQ_EMPTY, PD_S_TXQ_FULL|PD_S_TXQ_EMPTY, NULL, true);
     }
-
-    if (!haveLock)
-        IOLockUnlock(_lock);
 }
 
 /**
@@ -1509,13 +1543,10 @@ void coop_plausible_driver_CP210x::updateTXQueueState (void *refCon, bool haveLo
  * queue.
  *
  * @param refCon Reference constant.
- * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
- * automatically.
+ *
+ * @warning Must be called with _lock held.
  */
-void coop_plausible_driver_CP210x::updateRXQueueState (void *refCon, bool haveLock) {
-    if (!haveLock)
-        IOLockLock(_lock);
-    
+void coop_plausible_driver_CP210x::updateRXQueueState (void *refCon) {    
     /*
      * Determine the current value for PD_S_RXQ_FULL|PD_S_RXQ_EMPTY bits, one of:
      * - Non-empty: 0
@@ -1534,14 +1565,18 @@ void coop_plausible_driver_CP210x::updateRXQueueState (void *refCon, bool haveLo
         /* Buffer is now empty, so we ought to set the empty flag, clear the full flag. */
         this->setState(PD_S_RXQ_EMPTY, PD_S_RXQ_FULL|PD_S_RXQ_EMPTY, NULL, true);
     }
-    
-    if (!haveLock)
-        IOLockUnlock(_lock);
 }
 
 // from IOSerialDriverSync
 IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, UInt32 *count, bool sleep, void *refCon) {
     IOLockLock(_lock);
+    
+    /* Verify that the driver was not stopped while the lock was not held */
+    if (_stopping) {
+        LOG_DEBUG("requestEvent() - offline (stopping)");
+        IOLockUnlock(_lock);
+        return kIOReturnOffline;
+    }
 
     /* Nothing to do if we're not active */
     if ((_state & PD_S_ACTIVE) == 0) {
@@ -1556,7 +1591,7 @@ IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, U
         *count += written;
         
         /* Update the transmission queue state */
-        this->updateTXQueueState(refCon, true);
+        this->updateTXQueueState(refCon);
 
         /* If requested by the caller, and not all bytes have been written, sleep until the transmit queue is no
          * longer marked full, and then continue writing. */
@@ -1577,7 +1612,7 @@ IOReturn coop_plausible_driver_CP210x::enqueueData(UInt8 *buffer, UInt32 size, U
 
     /* If data was written, enable transmission. */
     if (*count > 0) {
-        this->startTransmit(refCon, true);
+        this->startTransmit(refCon);
     }
 
     IOLockUnlock(_lock);
@@ -1594,6 +1629,13 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
     }
 
     IOLockLock(_lock);
+    
+    /* Verify that the driver was not stopped while the lock was not held */
+    if (_stopping) {
+        LOG_DEBUG("requestEvent() - offline (stopping)");
+        IOLockUnlock(_lock);
+        return kIOReturnOffline;
+    }
 
     /* Nothing to do if we're not active */
     if ((_state & PD_S_ACTIVE) == 0) {
@@ -1608,10 +1650,10 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
         *count += nread;
         
         /* Update the transmission queue state */
-        this->updateRXQueueState(refCon, true);
+        this->updateRXQueueState(refCon);
 
         /* Our read may have freed sufficient space to allow additional USB read requests. */
-        this->startReceive(refCon, true);
+        this->startReceive(refCon);
 
         /* If requested by the caller, and not all bytes have been read, wait until the receive queue is no
          * longer marked empty, and then continue reading. */

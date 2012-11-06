@@ -111,6 +111,7 @@ public:
     virtual IOService *probe (IOService *provider, SInt32 *score);
     virtual bool start (IOService *provider);
     virtual void stop (IOService *provider);
+    virtual bool didTerminate (IOService *provider, IOOptionBits options, bool *defer);
     virtual void free (void);
 
     // IOSerialDriverSync
@@ -132,15 +133,18 @@ public:
     virtual IOReturn dequeueData (UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon);
 
 private:
-    void updateTXQueueState (void *refCon, bool haveLock);
-    void updateRXQueueState (void *refCon, bool haveLock);
+    void handleTermination (bool haveLock);
+    
+    void updateTXQueueState (void *refCon);
+    void updateRXQueueState (void *refCon);
     
     static void receiveHandler (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining);
-    IOReturn startReceive (void *refCon, bool haveLock);
+    IOReturn startReceive (void *refCon);
 
     static void transmitHandler (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining);
-    IOReturn startTransmit (void *refCon, bool haveLock);
+    IOReturn startTransmit (void *refCon);
 
+    void setStopping (void);
     IOReturn setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock);
     IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock);
 
