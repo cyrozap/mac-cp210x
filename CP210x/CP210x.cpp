@@ -181,8 +181,8 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         LOG_ERR("Could not create serial stream");
         return false;
     }
-    
-    LOG_DEBUG("Driver started");
+
+    LOG_INFO("USB serial port initialized.");
 
 #if DEBUG
     /* Run the debug build unit tests */
@@ -262,8 +262,8 @@ void coop_plausible_driver_CP210x::handleTermination (bool haveLock) {
     
     if (!haveLock)
         IOLockUnlock(_lock);
-    
-    LOG_DEBUG("Driver stopped");
+
+    LOG_INFO("USB serial port disconnected.");
 }
 
 // from IOService base class
