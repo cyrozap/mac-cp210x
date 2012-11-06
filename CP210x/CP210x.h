@@ -66,8 +66,14 @@ private:
     /** RX buffer. */
     coop_plausible_CP210x_RingBuffer *_rxBuffer;
 
-    /** Lock that must be held when accessing internal mutable state. This is also used as a condition variable
-     * to wake up any threads blocking on watchState() and its associated internal state changes. */
+    /**
+     * Lock that must be held when accessing internal mutable state. This is also used as a condition variable
+     * to wake up any threads blocking on watchState() and its associated internal state changes.
+     *
+     * We do not use a recursive lock, as there is no gaurantee that synchronous blocking calls will be
+     * made recursively on the same thread. Instead, we ensure that we never hold the internal lock
+     * when calling outside of the driver.
+     */
     IOLock *_lock;
     
     /* IOLockWakeup event condition to be used when _state is modified and the modification delta 
@@ -134,7 +140,9 @@ public:
 
 private:
     void handleTermination (bool haveLock);
-    
+
+    IOReturn sendUSBDeviceRequest (IOUSBDevRequest *req);
+
     void updateTXQueueState (void *refCon);
     void updateRXQueueState (void *refCon);
     

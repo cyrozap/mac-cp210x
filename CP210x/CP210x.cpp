@@ -395,6 +395,34 @@ void coop_plausible_driver_CP210x::setStopping (void) {
     IOLockWakeup(_lock, &_stateEvent, false);
 }
 
+/**
+ * Send a device request synchronously, while managing our internal locking and maintaining re-entrancy safety.
+ * This method will detect if the _stopping has been set and return an appropriate IOReturn.
+ *
+ * @warning This method must be called with _lock held.
+ */
+IOReturn coop_plausible_driver_CP210x::sendUSBDeviceRequest (IOUSBDevRequest *req) {
+    IOReturn ret;
+    
+    /* Issue our request. We unlock our mutex to avoid any chance of a dead-lock, and retain
+     * the provider to ensure that it is not deallocated out from under us. */
+    IOUSBInterface *prov = _provider;
+    prov->retain();
+    IOLockUnlock(_lock); {
+        ret = prov->GetDevice()->DeviceRequest(req, 5000, 0);
+    } IOLockLock(_lock);
+    prov->release();
+    
+    /* Verify that the driver has not been stopped */
+    if (_stopping) {
+        LOG_DEBUG("sendUSBDeviceRequest() - offline (stopping)");
+        IOLockUnlock(_lock);
+        return kIOReturnOffline;
+    }
+
+    return ret;
+}
+
 // from IOSerialDriverSync
 UInt32 coop_plausible_driver_CP210x::getState(void *refCon) {
     LOG_DEBUG("Get State");
@@ -690,7 +718,7 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (bool crtsct
     req.pData = flowctrl;
 
     /* Issue request */
-    IOReturn ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+    IOReturn ret = this->sendUSBDeviceRequest(&req);
     if (ret != kIOReturnSuccess) {
         LOG_ERR("Set USLCOM_SET_FLOWCTRL failed: %u", ret);
     }
@@ -740,7 +768,7 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xDataConfig (uint32_t txParity,
     req.pData = NULL;
     
     /* Issue request */
-    IOReturn ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+    IOReturn ret = this->sendUSBDeviceRequest(&req);
     if (ret != kIOReturnSuccess) {
         LOG_ERR("Set USLCOM_DATA failed: %u", ret);
     }
@@ -797,7 +825,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             }
 
             /* Issue request */
-            ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+            ret = this->sendUSBDeviceRequest(&req);
             if (ret != kIOReturnSuccess) {
                 /* Only return an error on start. At stop time, the device
                  * may have simply disappeared. */
@@ -885,7 +913,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             req.pData = NULL;
             
             /* Issue request */
-            ret = _provider->GetDevice()->DeviceRequest(&req, 5000, 0);
+            ret = this->sendUSBDeviceRequest(&req);
             if (ret == kIOReturnSuccess) {
                 _baudRate = baud;
             } else {
