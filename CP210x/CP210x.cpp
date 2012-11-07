@@ -2,9 +2,9 @@
  * Author: Landon Fuller <landonf@plausible.coop>
  *
  * Information on interfacing with the CP210x chipset was derived
- * from the FreeBSD uslcom(4) driver from FreeBSD 9.0. The uslcom(4)
- * driver was originally written by Johnathan Gray <jsg@openbsd.org>
- * for OpenBSD.
+ * from from the FreeBSD uslcom(4) and the publicly available
+ * AN571 data sheet:
+ * http://www.silabs.com/Support%20Documents/TechnicalDocs/AN571.pdf
  *
  * Copyright (c) 2012 Plausible Labs Cooperative, Inc.
  * All rights reserved.
@@ -698,20 +698,19 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (bool crtsct
         LOG_DEBUG("Enabling CRTSCTS flow control");
         flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON | USLCOM_FLOW_CTS_HS);
 		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
-		flowctrl[2] = 0;
-		flowctrl[3] = 0;
     } else {
         LOG_DEBUG("Enabling DTR/RTS with no flow control");
         flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
 		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_ON);
-		flowctrl[2] = 0;
-		flowctrl[3] = 0;
     }
+
+    flowctrl[2] = 0;
+    flowctrl[3] = 0;
 
     /* Set up the USB request */
     IOUSBDevRequest req;
     req.bmRequestType = USLCOM_WRITE;
-    req.bRequest = USLCOM_SET_FLOWCTRL;
+    req.bRequest = USLCOM_SET_FLOW;
     req.wValue = 0;
     req.wIndex = USLCOM_PORT_NO;
     req.wLength = sizeof(flowctrl);
@@ -761,7 +760,7 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xDataConfig (uint32_t txParity,
     /* Set up the USB request */
     IOUSBDevRequest req;
     req.bmRequestType = USLCOM_WRITE;
-    req.bRequest = USLCOM_DATA;
+    req.bRequest = USLCOM_SET_LINE_CTL;
     req.wValue = data;
     req.wIndex = USLCOM_PORT_NO;
     req.wLength = 0;
@@ -808,7 +807,7 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             /* Set up the UART request */
             IOUSBDevRequest req;
             req.bmRequestType = USLCOM_WRITE;
-            req.bRequest = USLCOM_UART;
+            req.bRequest = USLCOM_IFC_ENABLE;
             req.wIndex = USLCOM_PORT_NO;
             req.wLength = 0;
             req.pData = NULL;
@@ -817,11 +816,11 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             if (starting) {
                 LOG_DEBUG("Enabling UART");
                 stateUpdate = PD_S_ACTIVE;
-                req.wValue = USLCOM_UART_ENABLE;
+                req.wValue = USLCOM_IFC_ENABLE_EN;
             } else {
                 LOG_DEBUG("Disabling UART");
                 stateUpdate = 0;
-                req.wValue = USLCOM_UART_DISABLE;
+                req.wValue = USLCOM_IFC_ENABLE_DIS;
             }
 
             /* Issue request */
@@ -905,13 +904,14 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             
             /* Set up the UART request */
             IOUSBDevRequest req;
+            uint32_t reqBuad = OSSwapHostToLittleInt32(baud);
             req.bmRequestType = USLCOM_WRITE;
-            req.bRequest = USLCOM_BAUD_RATE;
-            req.wValue = USLCOM_BAUD_REF / baud;
+            req.bRequest = USLCOM_SET_BAUDRATE;
+            req.wValue = 0;
             req.wIndex = USLCOM_PORT_NO;
-            req.wLength = 0;
-            req.pData = NULL;
-            
+            req.wLength = sizeof(reqBuad);
+            req.pData = &reqBuad;
+    
             /* Issue request */
             ret = this->sendUSBDeviceRequest(&req);
             if (ret == kIOReturnSuccess) {

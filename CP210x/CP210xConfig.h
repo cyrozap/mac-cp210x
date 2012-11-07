@@ -21,7 +21,7 @@
 
 #include <IOKit/usb/USB.h>
 
-/* Configuration constants derived from FreeBSD's uslcom(4) */
+/* Configuration constants derived from FreeBSD's uslcom(4) r239260 */
 
 #define	USLCOM_SET_DATA_BITS(x)	((x) << 8)
 
@@ -30,56 +30,64 @@
 #define	USLCOM_READ     USBmakebmRequestType(kUSBIn, kUSBVendor, kUSBInterface)
 
 /* Request codes */
-#define	USLCOM_UART             0x00
-#define	USLCOM_BAUD_RATE        0x01	
-#define	USLCOM_DATA             0x03
-#define	USLCOM_BREAK            0x05
-#define	USLCOM_CTRL             0x07
-#define	USLCOM_RCTRL            0x08
-#define	USLCOM_SET_FLOWCTRL     0x13
-#define	USLCOM_VENDOR_SPECIFIC  0xff
+#define	USLCOM_IFC_ENABLE	0x00
+#define	USLCOM_SET_BAUDDIV	0x01
+#define	USLCOM_SET_LINE_CTL	0x03
+#define	USLCOM_SET_BREAK	0x05
+#define	USLCOM_SET_MHS		0x07
+#define	USLCOM_GET_MDMSTS	0x08
+#define	USLCOM_SET_FLOW		0x13
+#define	USLCOM_SET_BAUDRATE	0x1e
+#define	USLCOM_VENDOR_SPECIFIC	0xff
 
-/* USLCOM_UART values */
-#define	USLCOM_UART_DISABLE 0x00
-#define	USLCOM_UART_ENABLE  0x01
+/* USLCOM_IFC_ENABLE values */
+#define	USLCOM_IFC_ENABLE_DIS	0x00
+#define	USLCOM_IFC_ENABLE_EN	0x01
 
-/* USLCOM_CTRL/USLCOM_RCTRL values */
-#define	USLCOM_CTRL_DTR_ON  0x0001	
-#define	USLCOM_CTRL_DTR_SET 0x0100
-#define	USLCOM_CTRL_RTS_ON  0x0002
-#define	USLCOM_CTRL_RTS_SET 0x0200
-#define	USLCOM_CTRL_CTS     0x0010
-#define	USLCOM_CTRL_DSR     0x0020
-#define	USLCOM_CTRL_RI      0x0040
-#define	USLCOM_CTRL_DCD     0x0080
+/* USLCOM_SET_MHS/USLCOM_GET_MDMSTS values */
+#define	USLCOM_MHS_DTR_ON	0x0001
+#define	USLCOM_MHS_DTR_SET	0x0100
+#define	USLCOM_MHS_RTS_ON	0x0002
+#define	USLCOM_MHS_RTS_SET	0x0200
+#define	USLCOM_MHS_CTS		0x0010
+#define	USLCOM_MHS_DSR		0x0020
+#define	USLCOM_MHS_RI		0x0040
+#define	USLCOM_MHS_DCD		0x0080
 
-/* USLCOM_BAUD_RATE values */
-#define	USLCOM_BAUD_REF     0x384000
+/* USLCOM_SET_BAUDDIV values */
+#define	USLCOM_BAUDDIV_REF	3686400 /* 3.6864 MHz */
 
-/* USLCOM_DATA values */
-#define	USLCOM_STOP_BITS_1  0x00
-#define	USLCOM_STOP_BITS_2  0x02
-#define	USLCOM_PARITY_NONE  0x00
-#define	USLCOM_PARITY_ODD   0x10
-#define	USLCOM_PARITY_EVEN  0x20
+/* USLCOM_SET_LINE_CTL values */
+#define	USLCOM_STOP_BITS_1	0x00
+#define	USLCOM_STOP_BITS_2	0x02
+#define	USLCOM_PARITY_NONE	0x00
+#define	USLCOM_PARITY_ODD	0x10
+#define	USLCOM_PARITY_EVEN	0x20
+#define	USLCOM_SET_DATA_BITS(x)	((x) << 8)
 
-/* The default port number */
-#define	USLCOM_PORT_NO      0x0000
+/* USLCOM_SET_BREAK values */
+#define	USLCOM_SET_BREAK_OFF	0x00
+#define	USLCOM_SET_BREAK_ON	0x01
 
-/* USLCOM_BREAK configuration values */
-#define	USLCOM_BREAK_OFF    0x00
-#define	USLCOM_BREAK_ON     0x01
-
-/* USLCOM_SET_FLOWCTRL values - 1st word */
+/* USLCOM_SET_FLOW values - 1st word */
 #define	USLCOM_FLOW_DTR_ON      0x00000001 /* DTR static active */
 #define	USLCOM_FLOW_CTS_HS      0x00000008 /* CTS handshake */
-/* USLCOM_SET_FLOWCTRL values - 2nd word */
+/* USLCOM_SET_FLOW values - 2nd word */
 #define	USLCOM_FLOW_RTS_ON      0x00000040 /* RTS static active */
 #define	USLCOM_FLOW_RTS_HS      0x00000080 /* RTS handshake */
 
 /* USLCOM_VENDOR_SPECIFIC values */
-#define	USLCOM_WRITE_LATCH  0x37E1
-#define	USLCOM_READ_LATCH   0x00C2
+#define	USLCOM_WRITE_LATCH	0x37E1
+#define	USLCOM_READ_LATCH	0x00C2
+
+/* The default port number
+ * TODO: This must be removed to support multi-port devices.
+ * See:
+ *  - http://svnweb.freebsd.org/base/head/sys/dev/usb/serial/uslcom.c?r1=239037&r2=239050
+ *  - http://svnweb.freebsd.org/base/head/sys/dev/usb/serial/uslcom.c?r1=238804&r2=239037
+ */
+#define	USLCOM_PORT_NO      0x0000
+
 
 
 #endif
