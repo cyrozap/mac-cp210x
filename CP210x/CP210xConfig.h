@@ -71,8 +71,11 @@
 
 /* USLCOM_SET_FLOW values - 1st word */
 #define	USLCOM_FLOW_DTR_ON      0x00000001 /* DTR static active */
+#define	USLCOM_FLOW_DTR_HS	0x00000002 /* DTR handshake */
 #define	USLCOM_FLOW_CTS_HS      0x00000008 /* CTS handshake */
 /* USLCOM_SET_FLOW values - 2nd word */
+#define	USLCOM_FLOW_XON_ON	0x00000001 /* XON (transmit) software flow control */
+#define	USLCOM_FLOW_XOFF_ON	0x00000002 /* XOFF (receive) software flow control */
 #define	USLCOM_FLOW_RTS_ON      0x00000040 /* RTS static active */
 #define	USLCOM_FLOW_RTS_HS      0x00000080 /* RTS handshake */
 

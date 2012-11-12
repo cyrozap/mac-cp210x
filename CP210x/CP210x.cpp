@@ -43,10 +43,7 @@
 #define BUFFER_SIZE (PAGE_SIZE * 3)
 
 /* Valid flow control arguments */
-#define PL_A_FLOWCONTROL_MASK (PD_RS232_A_TXO | PD_RS232_A_XANY | PD_RS232_A_RXO | PD_RS232_A_RFR | PD_RS232_A_CTS | PD_RS232_A_DTR)
-
-/* Define a termios-style CRTSCTS -- CRTS_IFLOW | CCTS_OFLOW */
-#define PL_S_CRTSCTS (PD_RS232_S_RFR | PD_RS232_S_CTS)
+#define PL_RS232_A_FLOWCONTROL_MASK (PD_RS232_A_TXO | PD_RS232_A_XANY | PD_RS232_A_RXO | PD_RS232_A_RFR | PD_RS232_A_CTS | PD_RS232_A_DTR)
 
 // Define the superclass
 #define super IOSerialDriverSync
@@ -478,7 +475,24 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
     UInt32 newState = (_state & ~mask) | (state & mask);
     UInt32 deltaState = newState ^ _state;
 
-    /* Handle flow control modifications */
+    /* Handle control line configuration */
+    if (newState & PD_RS232_S_TXO) {
+        LOG_DEBUG("setState - S_TX0");
+    }
+
+    if (newState & PD_RS232_S_RTS) {
+        LOG_DEBUG("setState - S_RTS");
+    }
+
+    if (newState & PD_RS232_S_CTS) {
+        LOG_DEBUG("setState - S_CTS");
+    }
+
+    if (newState & PD_RS232_S_DTR) {
+        LOG_DEBUG("setState - S_DTR");
+    }
+
+#if 0
     if ((deltaState & PL_S_CRTSCTS) != 0) {
         LOG_DEBUG("Flow control change requested");
         bool crtscts = false;
@@ -493,6 +507,7 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
             return ret;
         }
     }
+#endif
 
     // TODO - Forbid state modifications we can't support via setState().
 #if 0
@@ -686,26 +701,61 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
 /**
  * Write the flow control configuration to the device.
  *
- * @param crtscts If true, enable RTS/CTS. If false, enable DTR/RTS.
- *
  * @warning Must be called with _lock held.
  */
-IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (bool crtscts) {
-    /* Initialize the request data */
-    uint32_t flowctrl[4];
+IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (void) {
+    LOG_DEBUG("writeCP210xFlowControlConfig(0x%X)", _flowState);
 
-    if (crtscts) {
-        LOG_DEBUG("Enabling CRTSCTS flow control");
-        flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON | USLCOM_FLOW_CTS_HS);
-		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
-    } else {
-        LOG_DEBUG("Enabling DTR/RTS with no flow control");
-        flowctrl[0] = OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
-		flowctrl[1] = OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_ON);
+    /* Initialize the request data */
+    uint32_t flowctrl[4] = { 0, 0, 0, 0 };
+
+    /* IXON */
+    if (_flowState & PD_RS232_A_TXO) {
+        LOG_DEBUG("[FC] Enabling IXON");
+        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XON_ON);
     }
 
-    flowctrl[2] = 0;
-    flowctrl[3] = 0;
+    /* IXANY */
+    if (_flowState & PD_RS232_A_XANY) {
+        LOG_DEBUG("[FC] Enabling XANY [unsupported]");
+        // TODO - The hardware doesn't support this directly. We can emulate this by calling SET_XON from
+        // the data reception code path; if the hardware is waiting for XON, it will resume transmit.
+        //
+        // We'll have to see if there's a way to do this more effeciently than sending SET_XON for every
+        // incoming read when IXANY is set.
+    }
+
+    /* IXOFF */
+    if (_flowState & PD_RS232_A_RXO) {
+        LOG_DEBUG("[FC] Enabling IXOFF");
+        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XOFF_ON);
+    }
+
+    /* CRTS_IFLOW */
+    if (_flowState & PD_RS232_A_RFR) {
+        LOG_DEBUG("[FC] Enabling CRTS_IFLOW");
+        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
+    }
+
+    /* CCTS_OFLOW */
+    if (_flowState & PD_RS232_A_CTS) {
+        LOG_DEBUG("[FC] Enabling CCTS_OFLOW");
+        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_CTS_HS);
+    }
+
+    /* CDTR_IFLOW / DTR_ON */
+    if (_flowState & PD_RS232_A_DTR) {
+        LOG_DEBUG("[FC] Enabling CDTR_IFLOW");
+        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_HS);
+    } else {
+        LOG_DEBUG("[FC] Driving DTR high");
+        /*
+         * XXX: we default to DTR on unless DTR handshaking is requested. This matches the
+         * FreeBSD driver behavior, but it's unclear if this is a well-defined behavior,
+         * as we may be potentially resetting the DTR value specified previously.
+         */
+        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
+    }
 
     /* Set up the USB request */
     IOUSBDevRequest req;
@@ -1035,17 +1085,10 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
         case PD_E_FLOW_CONTROL:
             LOG_DEBUG("executeEvent(PD_E_FLOW_CONTROL, %x, %p)", data, refCon);
 
-            /* Validate the data */
-            if (data & ~PL_A_FLOWCONTROL_MASK) {
-                LOG_ERR("PD_E_FLOW_CONTROL called with invalid data");
-                ret = kIOReturnBadArgument;
-            }
-
-            /* Shift to PD_RS232_S_ */
-            data >>= PD_RS232_A_SHIFT;
-
             /* Update state */
-            setState(data, PD_RS232_S_MASK, refCon, true);
+            _flowState = data;
+            writeCP210xFlowControlConfig();
+
             break;
 
         case PD_RS232_E_XON_BYTE:
@@ -1239,7 +1282,7 @@ IOReturn coop_plausible_driver_CP210x::requestEvent(UInt32 event, UInt32 *data, 
         }
 
         case PD_E_FLOW_CONTROL:
-            *data = _state << PD_RS232_A_SHIFT;
+            *data = _flowState & PL_RS232_A_FLOWCONTROL_MASK;
             LOG_DEBUG("requestEvent(PD_E_FLOW_CONTROL, %u, %p)", *data, refCon);
             break;
 

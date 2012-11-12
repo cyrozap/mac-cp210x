@@ -79,6 +79,22 @@ private:
     /* IOLockWakeup event condition to be used when _state is modified and the modification delta 
      * matches _watchState. We use the address as a unique condition variable. */
     void *_stateEvent;
+    
+    /**
+     * Flow control state, as defined by the PD_RS232_A_* constants. This must be maintained
+     * distinctly from the serial _state, as IOSerialBSDClient conflates CRTSCTS (CCTS_OFLOW|CRTS_IFLOW)
+     * with the PD_RS232_S_CTS|PD_RS232_S_RTS flags.
+     *
+     * Understanding the use of the PD_RS232_S versus PD_RS232_A constants:
+     * - The PD_RS232_S constants actually map value-for-value to the PD_RS232_A constants.
+     * - PD_RS232_S constants (such as PD_RS232_S_RTS) may be used to manually toggle the state of the RS-232 control lines
+     *   through the setState() API.
+     * - PD_RS232_A constants (such as PD_RS232_A_RTS) may only be used to set the flow control configuration via PD_E_FLOW_CONTROL
+     *   event. If these are enabled, the related PD_RS232_S control line configuration is disabled, and vis versa. Additionally,
+     *   when enabled, the PD_RS232_S values in managed by setState() must be reset to zero (TODO: should these be reset to 0? They should
+     *   probably track the actual line state, if that's possible to do).
+     */
+    UInt32 _flowState;
 
     /** Current serial state, as defined by PD_S_* constants. */
     UInt32 _state;
@@ -156,6 +172,6 @@ private:
     IOReturn setState (UInt32 state, UInt32 mask, void *refCon, bool haveLock);
     IOReturn watchState (UInt32 *state, UInt32 mask, void *refCon, bool haveLock);
 
-    IOReturn writeCP210xFlowControlConfig (bool crtscts);
+    IOReturn writeCP210xFlowControlConfig (void);
     IOReturn writeCP210xDataConfig (uint32_t txParity, bool twoStopBits, uint32_t charLength);
 };
