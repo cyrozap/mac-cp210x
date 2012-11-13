@@ -1424,8 +1424,27 @@ IOReturn coop_plausible_driver_CP210x::startReceive (void *refCon) {
     /* Otherwise, mark ourselves as busy */
     this->setState(PD_S_RX_BUSY, PD_S_RX_BUSY, refCon, true);
 
-    /* Prepare our read buffer, using the available _rxBuffer space as our buffer's maximum capacity. MEMORY WARNING:
-     * except in case of error, this buffer is released in our completion handler. */
+    /*
+     * Prepare our read buffer, using the available _rxBuffer space as our buffer's maximum capacity.
+     *
+     * TODO: This can fail in the case where we have less than _inputMaxPacketSize space available in
+     * the _rxBuffer:
+     *
+     *    http://lists.apple.com/archives/usb/2003/Jan/msg00061.html
+     *
+     *    Assuming that the maxPacketSize for your bulk pipe is 64 (very likely) and you request 27 bytes
+     *    but the device has 35 bytes available, it will send a 35 byte packet which won't fit in your 27
+     *    byte buffer resulting in a kIOReturnOverrun and an immediate stall error on the next read on that pipe.
+     *    Unlike most other operating systems, you can [not] read an arbitrary number of bytes from a bulk pipe on
+     *    Mac OS (9 or X) -- you should always round your requests up to a multiple of the maximum packet size and buffer
+     *    any excess for the next call.
+     *
+     * To correctly handle this, we'll need to treat the _rxBuffer as full if it has less than _inputMaxPacketSize
+     * space free. The BUFFER_SIZE usage must also be modified to ensure that the RX buffer is sized appropriately
+     * relative to the maximum input packet size.
+     *
+     * MEMORY WARNING: except in case of error, this buffer is released in our completion handler.
+     */
     IOReturn ret = kIOReturnSuccess;
     
     uint32_t bufferAvail = _rxBuffer->getCapacity() - _rxBuffer->getLength();
