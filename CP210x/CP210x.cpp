@@ -701,22 +701,24 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
 /**
  * Write the flow control configuration to the device.
  *
+ * @param flowState PD_RS232_A_* flow control configuration.
+ *
  * @warning Must be called with _lock held.
  */
-IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (void) {
-    LOG_DEBUG("writeCP210xFlowControlConfig(0x%X)", _flowState);
+IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (UInt32 flowState) {
+    LOG_DEBUG("writeCP210xFlowControlConfig(0x%X)", flowState);
 
     /* Initialize the request data */
     uint32_t flowctrl[4] = { 0, 0, 0, 0 };
 
     /* IXON */
-    if (_flowState & PD_RS232_A_TXO) {
+    if (flowState & PD_RS232_A_TXO) {
         LOG_DEBUG("[FC] Enabling IXON");
         flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XON_ON);
     }
 
     /* IXANY */
-    if (_flowState & PD_RS232_A_XANY) {
+    if (flowState & PD_RS232_A_XANY) {
         LOG_DEBUG("[FC] Enabling XANY [unsupported]");
         // TODO - The hardware doesn't support this directly. We can emulate this by calling SET_XON from
         // the data reception code path; if the hardware is waiting for XON, it will resume transmit.
@@ -726,25 +728,25 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (void) {
     }
 
     /* IXOFF */
-    if (_flowState & PD_RS232_A_RXO) {
+    if (flowState & PD_RS232_A_RXO) {
         LOG_DEBUG("[FC] Enabling IXOFF");
         flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XOFF_ON);
     }
 
     /* CRTS_IFLOW */
-    if (_flowState & PD_RS232_A_RFR) {
+    if (flowState & PD_RS232_A_RFR) {
         LOG_DEBUG("[FC] Enabling CRTS_IFLOW");
         flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
     }
 
     /* CCTS_OFLOW */
-    if (_flowState & PD_RS232_A_CTS) {
+    if (flowState & PD_RS232_A_CTS) {
         LOG_DEBUG("[FC] Enabling CCTS_OFLOW");
         flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_CTS_HS);
     }
 
     /* CDTR_IFLOW / DTR_ON */
-    if (_flowState & PD_RS232_A_DTR) {
+    if (flowState & PD_RS232_A_DTR) {
         LOG_DEBUG("[FC] Enabling CDTR_IFLOW");
         flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_HS);
     } else {
@@ -1086,8 +1088,9 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             LOG_DEBUG("executeEvent(PD_E_FLOW_CONTROL, %x, %p)", data, refCon);
 
             /* Update state */
-            _flowState = data;
-            writeCP210xFlowControlConfig();
+            ret = writeCP210xFlowControlConfig(_flowState);
+            if (ret == kIOReturnSuccess)
+                _flowState = data;
 
             break;
 
