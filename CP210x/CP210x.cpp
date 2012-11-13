@@ -1365,7 +1365,6 @@ void coop_plausible_driver_CP210x::receiveHandler (void *target, void *parameter
     
     if (status == kIOReturnOverrun) {
         LOG_ERR("Read IOUSBPipe overran buffer, resetting. Lost data.\n");
-        me->_inputPipe->ClearPipeStall(true);
     }
 
     /* Append the new data. This -must- fit, as the data request size is never larger than the
