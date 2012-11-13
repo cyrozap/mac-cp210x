@@ -475,39 +475,8 @@ IOReturn coop_plausible_driver_CP210x::setState (UInt32 state, UInt32 mask, void
     UInt32 newState = (_state & ~mask) | (state & mask);
     UInt32 deltaState = newState ^ _state;
 
-    /* Handle control line configuration */
-    if (newState & PD_RS232_S_TXO) {
-        LOG_DEBUG("setState - S_TX0");
-    }
-
-    if (newState & PD_RS232_S_RTS) {
-        LOG_DEBUG("setState - S_RTS");
-    }
-
-    if (newState & PD_RS232_S_CTS) {
-        LOG_DEBUG("setState - S_CTS");
-    }
-
-    if (newState & PD_RS232_S_DTR) {
-        LOG_DEBUG("setState - S_DTR");
-    }
-
-#if 0
-    if ((deltaState & PL_S_CRTSCTS) != 0) {
-        LOG_DEBUG("Flow control change requested");
-        bool crtscts = false;
-        if ((newState & PL_S_CRTSCTS) == PL_S_CRTSCTS) {
-            crtscts = true;
-        }
-
-        IOReturn ret = writeCP210xFlowControlConfig(crtscts);
-        if (ret != kIOReturnSuccess) {
-            if (!haveLock)
-                IOLockUnlock(_lock);
-            return ret;
-        }
-    }
-#endif
+    /* Write any control line changes */
+    writeCP210xControlLineConfig(newState, mask);
 
     // TODO - Forbid state modifications we can't support via setState().
 #if 0
@@ -695,135 +664,6 @@ UInt32 coop_plausible_driver_CP210x::nextEvent(void *refCon) {
     }
     IOLockUnlock(_lock);
 
-    return ret;
-}
-
-/**
- * Write the flow control configuration to the device.
- *
- * @param flowState PD_RS232_A_* flow control configuration.
- *
- * @warning Must be called with _lock held.
- */
-IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (UInt32 flowState) {
-    LOG_DEBUG("writeCP210xFlowControlConfig(0x%X)", flowState);
-
-    /* Initialize the request data */
-    uint32_t flowctrl[4] = { 0, 0, 0, 0 };
-
-    /* IXON */
-    if (flowState & PD_RS232_A_TXO) {
-        LOG_DEBUG("[FC] Enabling IXON");
-        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XON_ON);
-    }
-
-    /* IXANY */
-    if (flowState & PD_RS232_A_XANY) {
-        LOG_DEBUG("[FC] Enabling XANY [unsupported]");
-        // TODO - The hardware doesn't support this directly. We can emulate this by calling SET_XON from
-        // the data reception code path; if the hardware is waiting for XON, it will resume transmit.
-        //
-        // We'll have to see if there's a way to do this more effeciently than sending SET_XON for every
-        // incoming read when IXANY is set.
-    }
-
-    /* IXOFF */
-    if (flowState & PD_RS232_A_RXO) {
-        LOG_DEBUG("[FC] Enabling IXOFF");
-        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XOFF_ON);
-    }
-
-    /* CRTS_IFLOW */
-    if (flowState & PD_RS232_A_RFR) {
-        LOG_DEBUG("[FC] Enabling CRTS_IFLOW");
-        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
-    }
-
-    /* CCTS_OFLOW */
-    if (flowState & PD_RS232_A_CTS) {
-        LOG_DEBUG("[FC] Enabling CCTS_OFLOW");
-        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_CTS_HS);
-    }
-
-    /* CDTR_IFLOW / DTR_ON */
-    if (flowState & PD_RS232_A_DTR) {
-        LOG_DEBUG("[FC] Enabling CDTR_IFLOW");
-        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_HS);
-    } else {
-        LOG_DEBUG("[FC] Driving DTR high");
-        /*
-         * XXX: we default to DTR on unless DTR handshaking is requested. This matches the
-         * FreeBSD driver behavior, but it's unclear if this is a well-defined behavior,
-         * as we may be potentially resetting the DTR value specified previously.
-         */
-        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
-    }
-
-    /* Set up the USB request */
-    IOUSBDevRequest req;
-    req.bmRequestType = USLCOM_WRITE;
-    req.bRequest = USLCOM_SET_FLOW;
-    req.wValue = 0;
-    req.wIndex = USLCOM_PORT_NO;
-    req.wLength = sizeof(flowctrl);
-    req.pData = flowctrl;
-
-    /* Issue request */
-    IOReturn ret = this->sendUSBDeviceRequest(&req);
-    if (ret != kIOReturnSuccess) {
-        LOG_ERR("Set USLCOM_SET_FLOWCTRL failed: %u", ret);
-    }
-    
-    return ret;
-}
-
-/**
- * Write the stop bits, parity, and character length settings to the device.
- *
- * @param txParity The USLCOM_PARITY_* constant to be used to configure the device.
- * @param twoStopBits If true, set stop bits to 2. Otherwise 1.
- * @param charLength The character length. Must be a value >= 5, <= 8.
- */
-IOReturn coop_plausible_driver_CP210x::writeCP210xDataConfig (uint32_t txParity, bool twoStopBits, uint32_t charLength) {
-    LOG_DEBUG("Writing data config");
-    uint16_t data = 0;
-
-    /* Configure the bit field */
-    if (twoStopBits) {
-        data = USLCOM_STOP_BITS_2;
-    } else {
-        data = USLCOM_STOP_BITS_1;
-    }
-    
-    if (txParity == PD_RS232_PARITY_ODD) {
-        data |= USLCOM_PARITY_ODD;
-    } else if (txParity == PD_RS232_PARITY_EVEN) {
-        data |= USLCOM_PARITY_EVEN;
-    } else {
-        data |= USLCOM_PARITY_NONE;
-    }
-
-    if (charLength >= 5 && charLength <= 8) {
-        data |= USLCOM_SET_DATA_BITS(charLength);
-    } else {
-        LOG_ERR("Incorrect character length value configured: %u", charLength);
-    }
-    
-    /* Set up the USB request */
-    IOUSBDevRequest req;
-    req.bmRequestType = USLCOM_WRITE;
-    req.bRequest = USLCOM_SET_LINE_CTL;
-    req.wValue = data;
-    req.wIndex = USLCOM_PORT_NO;
-    req.wLength = 0;
-    req.pData = NULL;
-    
-    /* Issue request */
-    IOReturn ret = this->sendUSBDeviceRequest(&req);
-    if (ret != kIOReturnSuccess) {
-        LOG_ERR("Set USLCOM_DATA failed: %u", ret);
-    }
-        
     return ret;
 }
 
@@ -1768,4 +1608,186 @@ IOReturn coop_plausible_driver_CP210x::dequeueData(UInt8 *buffer, UInt32 size, U
     return kIOReturnSuccess;
 }
 
-/* Private Methods */
+#pragma mark CP210x Configuration
+
+/**
+ * Write control line configuration to the device.
+ *
+ * @param controlState PD_RS232_S_RTS or PD_RS232_S_DTR configuration flags.
+ * @param mask The mask to use when evaluating @a controlState
+ *
+ * @warning Must be called with _lock held.
+ */
+IOReturn coop_plausible_driver_CP210x::writeCP210xControlLineConfig (UInt32 controlState, UInt32 controlMask) {
+    // TODO -- This will blindly overwrite the flow control configuration
+    //
+    // CRTSCTS currently sets DTR high automatically, and leaves RTS in the control
+    // of the hardware.
+    
+    // TODO -- we apparently can not call sendUSBDeviceRequest synchronously from the IOKit work
+    // loop thread.
+
+    uint16_t ctl = 0x0;
+
+    if (controlMask & PD_RS232_S_DTR) {
+        LOG_DEBUG("Drive PD_RS232_S_DTR %s", (controlState & PD_RS232_S_DTR) ? "high" : "low");
+
+        ctl |= OSSwapHostToLittleInt16(USLCOM_MHS_DTR_SET);
+        if (controlState & PD_RS232_S_DTR)
+            ctl |= OSSwapHostToLittleInt16(USLCOM_MHS_DTR_ON);
+    }
+
+    if (controlMask & PD_RS232_S_RTS) {
+        LOG_DEBUG("Drive PD_RS232_S_RTS %s", (controlState & PD_RS232_S_RTS) ? "high" : "low");
+
+        ctl |= OSSwapHostToLittleInt16(USLCOM_MHS_RTS_SET);
+        if (controlState & PD_RS232_S_RTS)
+            ctl |= OSSwapHostToLittleInt16(USLCOM_MHS_RTS_ON);
+    }
+
+    /* Set up the USB request */
+    IOUSBDevRequest req;
+    req.bmRequestType = USLCOM_WRITE;
+    req.bRequest = USLCOM_SET_MHS;
+    req.wValue = ctl;
+    req.wIndex = USLCOM_PORT_NO;
+    req.wLength = 0;
+    req.pData = NULL;
+
+    /* Issue request */
+    IOReturn ret = this->sendUSBDeviceRequest(&req);
+    if (ret != kIOReturnSuccess) {
+        LOG_ERR("Set USLCOM_SET_MHS failed: %u", ret);
+    }
+    
+    return ret;
+}
+
+/**
+ * Write the flow control configuration to the device.
+ *
+ * @param flowState PD_RS232_A_* flow control configuration.
+ *
+ * @warning Must be called with _lock held.
+ */
+IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (UInt32 flowState) {
+    LOG_DEBUG("writeCP210xFlowControlConfig(0x%X)", flowState);
+    
+    /* Initialize the request data */
+    uint32_t flowctrl[4] = { 0, 0, 0, 0 };
+    
+    /* IXON */
+    if (flowState & PD_RS232_A_TXO) {
+        LOG_DEBUG("[FC] Enabling IXON");
+        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XON_ON);
+    }
+    
+    /* IXANY */
+    if (flowState & PD_RS232_A_XANY) {
+        LOG_DEBUG("[FC] Enabling XANY [unsupported]");
+        // TODO - The hardware doesn't support this directly. We can emulate this by calling SET_XON from
+        // the data reception code path; if the hardware is waiting for XON, it will resume transmit.
+        //
+        // We'll have to see if there's a way to do this more effeciently than sending SET_XON for every
+        // incoming read when IXANY is set.
+    }
+    
+    /* IXOFF */
+    if (flowState & PD_RS232_A_RXO) {
+        LOG_DEBUG("[FC] Enabling IXOFF");
+        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_XOFF_ON);
+    }
+    
+    /* CRTS_IFLOW */
+    if (flowState & PD_RS232_A_RFR) {
+        LOG_DEBUG("[FC] Enabling CRTS_IFLOW");
+        flowctrl[1] |= OSSwapHostToLittleInt32(USLCOM_FLOW_RTS_HS);
+    }
+    
+    /* CCTS_OFLOW */
+    if (flowState & PD_RS232_A_CTS) {
+        LOG_DEBUG("[FC] Enabling CCTS_OFLOW");
+        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_CTS_HS);
+    }
+    
+    /* CDTR_IFLOW / DTR_ON */
+    if (flowState & PD_RS232_A_DTR) {
+        LOG_DEBUG("[FC] Enabling CDTR_IFLOW");
+        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_HS);
+    } else {
+        LOG_DEBUG("[FC] Driving DTR high");
+        /*
+         * XXX: we default to DTR on unless DTR handshaking is requested. This matches the
+         * FreeBSD driver behavior, but it's unclear if this is a well-defined behavior,
+         * as we may be potentially resetting the DTR value specified previously.
+         */
+        //flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
+    }
+    
+    /* Set up the USB request */
+    IOUSBDevRequest req;
+    req.bmRequestType = USLCOM_WRITE;
+    req.bRequest = USLCOM_SET_FLOW;
+    req.wValue = 0;
+    req.wIndex = USLCOM_PORT_NO;
+    req.wLength = sizeof(flowctrl);
+    req.pData = flowctrl;
+    
+    /* Issue request */
+    IOReturn ret = this->sendUSBDeviceRequest(&req);
+    if (ret != kIOReturnSuccess) {
+        LOG_ERR("Set USLCOM_SET_FLOWCTRL failed: %u", ret);
+    }
+    
+    return ret;
+}
+
+/**
+ * Write the stop bits, parity, and character length settings to the device.
+ *
+ * @param txParity The USLCOM_PARITY_* constant to be used to configure the device.
+ * @param twoStopBits If true, set stop bits to 2. Otherwise 1.
+ * @param charLength The character length. Must be a value >= 5, <= 8.
+ */
+IOReturn coop_plausible_driver_CP210x::writeCP210xDataConfig (uint32_t txParity, bool twoStopBits, uint32_t charLength) {
+    LOG_DEBUG("Writing data config");
+    uint16_t data = 0;
+    
+    /* Configure the bit field */
+    if (twoStopBits) {
+        data = USLCOM_STOP_BITS_2;
+    } else {
+        data = USLCOM_STOP_BITS_1;
+    }
+    
+    if (txParity == PD_RS232_PARITY_ODD) {
+        data |= USLCOM_PARITY_ODD;
+    } else if (txParity == PD_RS232_PARITY_EVEN) {
+        data |= USLCOM_PARITY_EVEN;
+    } else {
+        data |= USLCOM_PARITY_NONE;
+    }
+    
+    if (charLength >= 5 && charLength <= 8) {
+        data |= USLCOM_SET_DATA_BITS(charLength);
+    } else {
+        LOG_ERR("Incorrect character length value configured: %u", charLength);
+    }
+    
+    /* Set up the USB request */
+    IOUSBDevRequest req;
+    req.bmRequestType = USLCOM_WRITE;
+    req.bRequest = USLCOM_SET_LINE_CTL;
+    req.wValue = data;
+    req.wIndex = USLCOM_PORT_NO;
+    req.wLength = 0;
+    req.pData = NULL;
+    
+    /* Issue request */
+    IOReturn ret = this->sendUSBDeviceRequest(&req);
+    if (ret != kIOReturnSuccess) {
+        LOG_ERR("Set USLCOM_DATA failed: %u", ret);
+    }
+    
+    return ret;
+}
