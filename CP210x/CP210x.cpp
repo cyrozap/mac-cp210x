@@ -132,6 +132,9 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         LOG_ERR("Could not determine maximum input packet size, selecting minimum size of 8 bytes.");
         _inputMaxPacketSize = 8;
     }
+    
+    _receiveHandler.action = receiveHandler;
+    _receiveHandler.target = this;
 
     /* Find output endpoint */
     IOUSBFindEndpointRequest outReq = {
@@ -151,6 +154,8 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
         _outputMaxPacketSize = 8;
     }
 
+    _transmitHandler.action = transmitHandler;
+    _transmitHandler.target = this;
 
     /* Configure TX/RX buffers */
     _txBuffer = new coop_plausible_CP210x_RingBuffer();
@@ -393,23 +398,81 @@ void coop_plausible_driver_CP210x::setStopping (void) {
 }
 
 /**
- * Send a device request synchronously, while managing our internal locking and maintaining re-entrancy safety.
+ * @internal
+ *
+ * Clean up the request data allocated in sendUSBDeviceRequest upon completion of an IOUSBDevRequest. 
+ * @param target The IOMalloc-allocated IOUSBCompletion
+ * @param paramter The IOMalloc-allocated IOUSBDevRequest
+ */
+void coop_plausible_driver_CP210x::sendUSBDeviceRequestCleanup (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining) {
+    IOUSBDevRequest *req = (IOUSBDevRequest *) parameter;
+
+    if (status != kIOReturnSuccess)
+        LOG_ERR("IOUSBDevRequest type=0x%hhX, request=0x%hhX returned error: 0x%X", req->bmRequestType, req->bRequest, status);
+
+    /* Clean up our completion block */
+    IOFree(target, sizeof(IOUSBCompletion));
+
+    /* Clean up our device request */
+    if (req->pData != NULL)
+        IOFree(req->pData, req->wLength);
+    
+    IOFree(req, sizeof(IOUSBDevRequest));    
+}
+
+
+/**
+ * Send a device request asynchronously, while managing our internal locking and maintaining re-entrancy safety.
  * This method will detect if the _stopping has been set and return an appropriate IOReturn.
+ *
+ * @param req The request to be sent. If req->pData is non-NULL, its contents will be copied
+ * into a buffer that will be automatically deallocated upon completion (or error) of the asynchronous
+ * call.
  *
  * @warning This method must be called with _lock held.
  */
 IOReturn coop_plausible_driver_CP210x::sendUSBDeviceRequest (IOUSBDevRequest *req) {
     IOReturn ret;
+
+    /* Set up a copy of the request, using allocated buffers that will survive the request
+     * lifetime. */
+    IOUSBDevRequest *copiedReq = (IOUSBDevRequest *) IOMalloc(sizeof(IOUSBDevRequest));
+
+    copiedReq->bmRequestType = req->bmRequestType;
+    copiedReq->bRequest = req->bRequest;
+    copiedReq->wValue = req->wValue;
+    copiedReq->wIndex = req->wIndex;
+    copiedReq->wLength = req->wLength;
+
+    /* Copy the request pData out into a malloc'd buffer we control. */
+    if (req->pData != NULL) {
+        void *buf = (void *) IOMalloc(req->wLength);
+        memcpy(buf, req->pData, req->wLength);
+        copiedReq->pData = buf;
+    } else {
+        copiedReq->pData = NULL;
+    }
     
+    /* Allocate and initialize our completion handler */
+    IOUSBCompletion *handler = (IOUSBCompletion *) IOMalloc(sizeof(IOUSBCompletion));
+    handler->target = handler;
+    handler->action = sendUSBDeviceRequestCleanup;
+    handler->parameter = copiedReq;
+
     /* Issue our request. We unlock our mutex to avoid any chance of a dead-lock, and retain
      * the provider to ensure that it is not deallocated out from under us. */
     IOUSBInterface *prov = _provider;
     prov->retain();
     IOLockUnlock(_lock); {
-        ret = prov->GetDevice()->DeviceRequest(req, 5000, 0);
+        ret = prov->GetDevice()->DeviceRequest(copiedReq, 5000, 0, handler);
     } IOLockLock(_lock);
     prov->release();
-    
+
+    /* Perform cleanup if an immediate error occurs */
+    if (ret != kIOReturnSuccess) {
+        sendUSBDeviceRequestCleanup(handler, copiedReq, ret, 0);
+    }
+
     /* Verify that the driver has not been stopped */
     if (_stopping) {
         LOG_DEBUG("sendUSBDeviceRequest() - offline (stopping)");
@@ -1306,16 +1369,12 @@ IOReturn coop_plausible_driver_CP210x::startReceive (void *refCon) {
     
     /* Issue our transmit request. We unlock our mutex to avoid any chance of a dead-lock, and retain
      * the outputPipe to ensure that it is not deallocated out from under us. */
-    IOUSBCompletion handler = {
-        .target = this,
-        .action = receiveHandler,
-        .parameter = mem
-    };
+    _receiveHandler.parameter = mem;
 
     IOUSBPipe *inputPipe = _inputPipe;
     inputPipe->retain();
     IOLockUnlock(_lock); {
-        ret = inputPipe->Read(mem, READ_TIMEOUT, READ_TIMEOUT, &handler);
+        ret = inputPipe->Read(mem, READ_TIMEOUT, READ_TIMEOUT, &_receiveHandler);
     } IOLockLock(_lock);
     inputPipe->release();
     
@@ -1412,16 +1471,10 @@ IOReturn coop_plausible_driver_CP210x::startTransmit (void *refCon) {
 
     /* Issue our transmit request. We unlock our mutex to avoid any chance of a dead-lock, and retain
      * the outputPipe to ensure that it is not deallocated out from under us. */
-    IOUSBCompletion handler = {
-        .target = this,
-        .action = transmitHandler,
-        .parameter = NULL
-    };
-
     IOUSBPipe *outputPipe = _outputPipe;
     outputPipe->retain();
     IOLockUnlock(_lock); {
-        ret = outputPipe->Write(mem, 1000, 1000, &handler);
+        ret = outputPipe->Write(mem, 1000, 1000, &_transmitHandler);
     } IOLockLock(_lock);
     outputPipe->release();
     
@@ -1623,10 +1676,6 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xControlLineConfig (UInt32 cont
     //
     // CRTSCTS currently sets DTR high automatically, and leaves RTS in the control
     // of the hardware.
-    
-    // TODO -- we apparently can not call sendUSBDeviceRequest synchronously from the IOKit work
-    // loop thread.
-
     uint16_t ctl = 0x0;
 
     if (controlMask & PD_RS232_S_DTR) {

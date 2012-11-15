@@ -75,7 +75,15 @@ private:
      * when calling outside of the driver.
      */
     IOLock *_lock;
-    
+
+    /** Completion handler for receiveHandler(). Must only be modified from startReceive() and receiveHandler(), and may
+     * not be modified while a receive is in-progress (eg, if PD_S_RX_BUSY is set). */
+    IOUSBCompletion _receiveHandler;
+
+    /** Completion handler for transmitHandler(). Must only be modified from startTransmit() and transmitHandler(), and may
+     * not be modified while a transmit is in-progress (eg, if PD_S_TX_BUSY is set). */
+    IOUSBCompletion _transmitHandler;
+
     /* IOLockWakeup event condition to be used when _state is modified and the modification delta 
      * matches _watchState. We use the address as a unique condition variable. */
     void *_stateEvent;
@@ -157,6 +165,7 @@ public:
 private:
     void handleTermination (bool haveLock);
 
+    static void sendUSBDeviceRequestCleanup (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining);
     IOReturn sendUSBDeviceRequest (IOUSBDevRequest *req);
 
     void updateTXQueueState (void *refCon);
