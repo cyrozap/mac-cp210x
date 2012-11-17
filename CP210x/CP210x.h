@@ -44,6 +44,9 @@ class coop_plausible_driver_CP210x : public IOSerialDriverSync {
 private:
     /** Backing USB interface provider. */
     IOUSBInterface *_provider;
+    
+    /** Control pipe */
+    IOUSBPipe *_controlPipe;
 
     /** Input pipe */
     IOUSBPipe *_inputPipe;
@@ -133,6 +136,10 @@ private:
     
     /** If true, driver is stopping, and all internal state has been reset. */
     bool _stopping;
+    
+    /** The number of outstanding asynchronous requests. This refcount is used to delay
+     * driver shutdown in the case where synchronous requests remain pending. */
+    size_t _ioReqCount;
 
 public:
     
@@ -141,8 +148,10 @@ public:
     virtual IOService *probe (IOService *provider, SInt32 *score);
     virtual bool start (IOService *provider);
     virtual void stop (IOService *provider);
-    virtual bool didTerminate (IOService *provider, IOOptionBits options, bool *defer);
     virtual void free (void);
+    
+    virtual bool willTerminate (IOService *provider, IOOptionBits options);
+    virtual bool didTerminate (IOService *provider, IOOptionBits options, bool *defer);
 
     // IOSerialDriverSync
     virtual IOReturn acquirePort (bool sleep, void *refCon);
@@ -163,7 +172,8 @@ public:
     virtual IOReturn dequeueData (UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon);
 
 private:
-    void handleTermination (bool haveLock);
+    void incrIOReqCount (bool haveLock);
+    void decrIOReqCount (bool haveLock);
 
     static void sendUSBDeviceRequestCleanup (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining);
     IOReturn sendUSBDeviceRequest (IOUSBDevRequest *req);

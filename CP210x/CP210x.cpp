@@ -113,6 +113,14 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     /* Open USB interface */
     _provider->open(this);
 
+    /* Find control endpoint */
+    _controlPipe = _provider->GetPipeObj(0);
+    if (_controlPipe == NULL) {
+        /* Should never happen */
+        LOG_ERR("Could not find control pipe");
+        return false;
+    }
+    _controlPipe->retain();
 
     /* Find input endpoint */
     IOUSBFindEndpointRequest inReq = {
@@ -135,6 +143,7 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     
     _receiveHandler.action = receiveHandler;
     _receiveHandler.target = this;
+    _receiveHandler.parameter = NULL;
 
     /* Find output endpoint */
     IOUSBFindEndpointRequest outReq = {
@@ -156,6 +165,7 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
 
     _transmitHandler.action = transmitHandler;
     _transmitHandler.target = this;
+    _transmitHandler.parameter = NULL;
 
     /* Configure TX/RX buffers */
     _txBuffer = new coop_plausible_CP210x_RingBuffer();
@@ -196,53 +206,64 @@ bool coop_plausible_driver_CP210x::start (IOService *provider) {
     return true;
 }
 
-/**
- * Abort all transfers, and close all references to our providers, and prepare
- * the driver for termination.
- *
- * May be called multiple times; additional requests will be ignored.
- *
- * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
- * automatically.
- */
-void coop_plausible_driver_CP210x::handleTermination (bool haveLock) {
-    if (!haveLock)
-        IOLockLock(_lock);
+
+// from IOService base class
+void coop_plausible_driver_CP210x::stop (IOService *provider) {
+    LOG_DEBUG("stop");
     
-    /* Avoid multiple execution.
-     *
-     * We're called directly from didTerminate to trigger cleanup of
-     * our reference to our provider, in which case we'll also be called
-     * again from our own stop() implementation.
-     *
-     * TODO: Is there any way for stop() to be called without didTerminate() being
-     * called? If not, we can eliminate the call to handleTermination() from stop().
-     */
-    if (_stopping) {
-        if (!haveLock)
-            IOLockUnlock(_lock);
-        return;
+    IOLockLock(_lock); {
+        /* Set _stopping flag, waking up any blocked/waiting threads. */
+        this->setStopping();
+
+        /* Abort all transfers */
+        _inputPipe->Abort();
+        _outputPipe->Abort();
+        _controlPipe->Abort();
+
+        /* Close our provider */
+        _provider->close(this);
+    } IOLockUnlock(_lock);
+    
+    super::stop(provider);
+}
+
+// from IOService base class;
+bool coop_plausible_driver_CP210x::willTerminate (IOService *provider, IOOptionBits options) {
+    LOG_DEBUG("willTerminate()");
+    return super::willTerminate(provider, options);
+}
+
+// from IOService base class;
+bool coop_plausible_driver_CP210x::didTerminate (IOService *provider, IOOptionBits options, bool *defer) {
+    LOG_DEBUG("didTerminate()");
+    return super::didTerminate(provider, options, defer);
+}
+
+// from IOService base class
+void coop_plausible_driver_CP210x::free (void) {
+    LOG_DEBUG("free\n");
+
+    if (_lock != NULL) {
+        IOLockFree(_lock);
+        _lock = NULL;
     }
     
-    LOG_DEBUG("handleTermination()");
-
-    /* Wake up any waiting threads. This will set the _stopping flag */
-    this->setStopping();
-
     if (_provider != NULL) {
-        _provider->close(this);
         _provider->release();
         _provider = NULL;
     }
     
+    if (_controlPipe != NULL) {
+        _controlPipe->release();
+        _controlPipe = NULL;
+    }
+    
     if (_inputPipe != NULL) {
-        _inputPipe->Abort();
         _inputPipe->release();
         _inputPipe = NULL;
     }
     
     if (_outputPipe != NULL) {
-        _outputPipe->Abort();
         _outputPipe->release();
         _outputPipe = NULL;
     }
@@ -260,34 +281,6 @@ void coop_plausible_driver_CP210x::handleTermination (bool haveLock) {
     if (_rxBuffer != NULL) {
         _rxBuffer->release();
         _rxBuffer = NULL;
-    }
-    
-    if (!haveLock)
-        IOLockUnlock(_lock);
-
-    LOG_INFO("USB serial port disconnected.");
-}
-
-// from IOService base class
-void coop_plausible_driver_CP210x::stop (IOService *provider) {    
-    handleTermination(false);
-    super::stop(provider);
-}
-
-// from IOService base class;
-bool coop_plausible_driver_CP210x::didTerminate (IOService *provider, IOOptionBits options, bool *defer) {
-    LOG_DEBUG("didTerminate()");
-    handleTermination(false);
-    return super::didTerminate(provider, options, defer);
-}
-
-// from IOService base class
-void coop_plausible_driver_CP210x::free (void) {
-    LOG_DEBUG("free\n");
-
-    if (_lock != NULL) {
-        IOLockFree(_lock);
-        _lock = NULL;
     }
 
     super::free();
@@ -377,6 +370,43 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
     return kIOReturnSuccess;
 }
 
+/**
+ * Increment the I/O reference count to account for a not-yet-completed
+ * asynchronous I/O request.
+ *
+ * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
+ * automatically.
+ */
+void coop_plausible_driver_CP210x::incrIOReqCount (bool haveLock) {
+    if (!haveLock)
+        IOLockLock(_lock);
+    
+    _ioReqCount++;
+
+    if (!haveLock)
+        IOLockUnlock(_lock);
+}
+
+/**
+ * Decrement the I/O reference count to account for a now-completed
+ * asynchronous I/O request.
+ *
+ * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
+ * automatically.
+ */
+void coop_plausible_driver_CP210x::decrIOReqCount (bool haveLock) {
+    if (!haveLock)
+        IOLockLock(_lock);
+    
+    _ioReqCount--;
+    if (_ioReqCount == 0 && _stopping) {
+        // TODO
+    }
+
+    if (!haveLock)
+        IOLockUnlock(_lock);
+}
+
 #pragma mark State Management
 
 /**
@@ -399,25 +429,34 @@ void coop_plausible_driver_CP210x::setStopping (void) {
 
 /**
  * @internal
+ * Used to track sendUSBDeviceRequest() completion context.
+ */
+struct CP210DeviceRequestHandler {
+    /** The USB completion block */
+    IOUSBCompletion completion;
+    
+    /** The USB request */
+    IOUSBDevRequest req;
+
+    /** pData buffer, if any. */
+    uint8_t pData[];
+};
+
+/**
+ * @internal
  *
  * Clean up the request data allocated in sendUSBDeviceRequest upon completion of an IOUSBDevRequest. 
  * @param target The IOMalloc-allocated IOUSBCompletion
  * @param paramter The IOMalloc-allocated IOUSBDevRequest
  */
 void coop_plausible_driver_CP210x::sendUSBDeviceRequestCleanup (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining) {
-    IOUSBDevRequest *req = (IOUSBDevRequest *) parameter;
+    struct CP210DeviceRequestHandler *handler = (struct CP210DeviceRequestHandler *) parameter;
+    IOUSBDevRequest *req = (IOUSBDevRequest *) &handler->req;
 
     if (status != kIOReturnSuccess)
-        LOG_ERR("IOUSBDevRequest type=0x%hhX, request=0x%hhX returned error: 0x%X", req->bmRequestType, req->bRequest, status);
+        LOG_ERR("IOUSBDevRequest type=0x%x, request=0x%x returned error: 0x%x", (int) req->bmRequestType, (int) req->bRequest, status);
 
-    /* Clean up our completion block */
-    IOFree(target, sizeof(IOUSBCompletion));
-
-    /* Clean up our device request */
-    if (req->pData != NULL)
-        IOFree(req->pData, req->wLength);
-    
-    IOFree(req, sizeof(IOUSBDevRequest));    
+    IOFree(handler, sizeof(CP210DeviceRequestHandler) + req->wLength);
 }
 
 
@@ -434,49 +473,44 @@ void coop_plausible_driver_CP210x::sendUSBDeviceRequestCleanup (void *target, vo
 IOReturn coop_plausible_driver_CP210x::sendUSBDeviceRequest (IOUSBDevRequest *req) {
     IOReturn ret;
 
-    /* Set up a copy of the request, using allocated buffers that will survive the request
-     * lifetime. */
-    IOUSBDevRequest *copiedReq = (IOUSBDevRequest *) IOMalloc(sizeof(IOUSBDevRequest));
+    /* Allocate sufficient space for the structure, as well as any pData in the request */
+    struct CP210DeviceRequestHandler *handler = (struct CP210DeviceRequestHandler *) IOMalloc(sizeof(CP210DeviceRequestHandler) + req->wLength);
 
-    copiedReq->bmRequestType = req->bmRequestType;
-    copiedReq->bRequest = req->bRequest;
-    copiedReq->wValue = req->wValue;
-    copiedReq->wIndex = req->wIndex;
-    copiedReq->wLength = req->wLength;
+    /* Copy in the request */
+    bzero(&handler->req, sizeof(IOUSBDevRequest));
+
+    handler->req.bmRequestType = req->bmRequestType;
+    handler->req.bRequest = req->bRequest;
+    handler->req.wValue = req->wValue;
+    handler->req.wIndex = req->wIndex;
+    handler->req.wLength = req->wLength;
 
     /* Copy the request pData out into a malloc'd buffer we control. */
     if (req->pData != NULL) {
-        void *buf = (void *) IOMalloc(req->wLength);
-        memcpy(buf, req->pData, req->wLength);
-        copiedReq->pData = buf;
+        memcpy(handler->pData, req->pData, req->wLength);
+        handler->req.pData = handler->pData;
     } else {
-        copiedReq->pData = NULL;
+        handler->req.pData = NULL;
     }
     
     /* Allocate and initialize our completion handler */
-    IOUSBCompletion *handler = (IOUSBCompletion *) IOMalloc(sizeof(IOUSBCompletion));
-    handler->target = handler;
-    handler->action = sendUSBDeviceRequestCleanup;
-    handler->parameter = copiedReq;
+    handler->completion.target = this;
+    handler->completion.action = sendUSBDeviceRequestCleanup;
+    handler->completion.parameter = handler;
 
-    /* Issue our request. We unlock our mutex to avoid any chance of a dead-lock, and retain
-     * the provider to ensure that it is not deallocated out from under us. */
-    IOUSBInterface *prov = _provider;
-    prov->retain();
+    /* Issue our request. We unlock our mutex to avoid any chance of a dead-lock. */
     IOLockUnlock(_lock); {
-        ret = prov->GetDevice()->DeviceRequest(copiedReq, 5000, 0, handler);
+        ret = _provider->GetDevice()->DeviceRequest(&handler->req, 5000, 0, &handler->completion);
     } IOLockLock(_lock);
-    prov->release();
 
     /* Perform cleanup if an immediate error occurs */
     if (ret != kIOReturnSuccess) {
-        sendUSBDeviceRequestCleanup(handler, copiedReq, ret, 0);
+        sendUSBDeviceRequestCleanup(this, &handler, ret, 0);
     }
 
     /* Verify that the driver has not been stopped */
     if (_stopping) {
         LOG_DEBUG("sendUSBDeviceRequest() - offline (stopping)");
-        IOLockUnlock(_lock);
         return kIOReturnOffline;
     }
 
@@ -781,14 +815,12 @@ IOReturn coop_plausible_driver_CP210x::executeEvent(UInt32 event, UInt32 data, v
             /* Issue request */
             ret = this->sendUSBDeviceRequest(&req);
             if (ret != kIOReturnSuccess) {
-                /* Only return an error on start. At stop time, the device
-                 * may have simply disappeared. */
+                /* Only log an error on start. At stop time, the device may have simply disappeared. */
                 if (starting) {
                     LOG_ERR("Set PD_E_ACTIVE (data=%u) failed: %u", data, ret);
                     break;
                 } else {
                     LOG_DEBUG("Ignoring PD_E_ACTIVE error %u on stop. The device was likely unplugged.", ret);
-                    ret = kIOReturnSuccess;
                     break;
                 }
             }
@@ -1770,7 +1802,7 @@ IOReturn coop_plausible_driver_CP210x::writeCP210xFlowControlConfig (UInt32 flow
          * FreeBSD driver behavior, but it's unclear if this is a well-defined behavior,
          * as we may be potentially resetting the DTR value specified previously.
          */
-        //flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
+        flowctrl[0] |= OSSwapHostToLittleInt32(USLCOM_FLOW_DTR_ON);
     }
     
     /* Set up the USB request */
