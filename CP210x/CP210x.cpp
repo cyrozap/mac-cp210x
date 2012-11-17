@@ -215,10 +215,14 @@ void coop_plausible_driver_CP210x::stop (IOService *provider) {
         /* Set _stopping flag, waking up any blocked/waiting threads. */
         this->setStopping();
 
-        /* Abort all transfers */
-        _inputPipe->Abort();
-        _outputPipe->Abort();
-        _controlPipe->Abort();
+        /* Synchronously abort all transfers. We do this with the lock
+         * not held to ensure that we don't deadlock running cleanup
+         * code. */
+        IOLockUnlock(_lock); {
+            _inputPipe->Abort();
+            _outputPipe->Abort();
+            _controlPipe->Abort();
+        } IOLockLock(_lock);
 
         /* Close our provider */
         _provider->close(this);
@@ -450,6 +454,9 @@ struct CP210DeviceRequestHandler {
  * @param paramter The IOMalloc-allocated IOUSBDevRequest
  */
 void coop_plausible_driver_CP210x::sendUSBDeviceRequestCleanup (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining) {
+    LOG_DEBUG("sendUSBDeviceRequestCleanup()");
+
+    coop_plausible_driver_CP210x *me = (coop_plausible_driver_CP210x *) target;
     struct CP210DeviceRequestHandler *handler = (struct CP210DeviceRequestHandler *) parameter;
     IOUSBDevRequest *req = (IOUSBDevRequest *) &handler->req;
 
@@ -457,6 +464,18 @@ void coop_plausible_driver_CP210x::sendUSBDeviceRequestCleanup (void *target, vo
         LOG_ERR("IOUSBDevRequest type=0x%x, request=0x%x returned error: 0x%x", (int) req->bmRequestType, (int) req->bRequest, status);
 
     IOFree(handler, sizeof(CP210DeviceRequestHandler) + req->wLength);
+
+    /* Drop our reference.
+     *
+     * XXX: This is a temporary work-around that (sort of) protects us from our code being unloaded while waiting for this callback to
+     * execute. However there's no gaurantee that this won't trigger an -immediate- dealloc and unmapping of the kext, including this function,
+     * resulting in a crash here.
+     *
+     * I've wracked my brain trying to think of a way to safely handle kext unload while the driver is active, and I can't think of anything.
+     * As far as I can see, there's no way to synchronously cancel all pending async callbacks, and there's no way to delay deallocation
+     * of the kext other than maintaining a reference count here.
+     */
+    me->release();
 }
 
 
@@ -499,6 +518,7 @@ IOReturn coop_plausible_driver_CP210x::sendUSBDeviceRequest (IOUSBDevRequest *re
     handler->completion.parameter = handler;
 
     /* Issue our request. We unlock our mutex to avoid any chance of a dead-lock. */
+    this->retain();
     IOLockUnlock(_lock); {
         ret = _provider->GetDevice()->DeviceRequest(&handler->req, 5000, 0, &handler->completion);
     } IOLockLock(_lock);
