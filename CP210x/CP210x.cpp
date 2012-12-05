@@ -381,14 +381,21 @@ IOReturn coop_plausible_driver_CP210x::releasePort(void *refCon) {
  * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
  * automatically.
  */
-void coop_plausible_driver_CP210x::incrIOReqCount (bool haveLock) {
+IOReturn coop_plausible_driver_CP210x::incrIOReqCount (bool haveLock) {
     if (!haveLock)
         IOLockLock(_lock);
-    
+
+    if (_ioReqCount == SIZE_MAX) {
+        LOG_ERR("incrIOReqCount() >= SIZE_MAX!");
+        return kIOReturnNoSpace;
+    }
+
     _ioReqCount++;
 
     if (!haveLock)
         IOLockUnlock(_lock);
+
+    return kIOReturnSuccess;
 }
 
 /**
@@ -397,15 +404,18 @@ void coop_plausible_driver_CP210x::incrIOReqCount (bool haveLock) {
  *
  * @param haveLock If true, the method will assume that _lock is held. If false, the lock will be acquired
  * automatically.
+ *
+ * TODO: We need to use external synchronization to enforce strict ordering between operations that affect the
+ * I/O refcount, and operations that validate the refcount to determine whether the driver can be terminated. The
+ * likely solution for this would be a synchronous request to a work queue, where it's not possible for our
+ * request to execute until the refcount-decrementing code has completed.
  */
 void coop_plausible_driver_CP210x::decrIOReqCount (bool haveLock) {
     if (!haveLock)
         IOLockLock(_lock);
-    
+
+    assert(_ioReqCount > 0);
     _ioReqCount--;
-    if (_ioReqCount == 0 && _stopping) {
-        // TODO
-    }
 
     if (!haveLock)
         IOLockUnlock(_lock);
@@ -465,17 +475,8 @@ void coop_plausible_driver_CP210x::sendUSBDeviceRequestCleanup (void *target, vo
 
     IOFree(handler, sizeof(CP210DeviceRequestHandler) + req->wLength);
 
-    /* Drop our reference.
-     *
-     * XXX: This is a temporary work-around that (sort of) protects us from our code being unloaded while waiting for this callback to
-     * execute. However there's no gaurantee that this won't trigger an -immediate- dealloc and unmapping of the kext, including this function,
-     * resulting in a crash here.
-     *
-     * I've wracked my brain trying to think of a way to safely handle kext unload while the driver is active, and I can't think of anything.
-     * As far as I can see, there's no way to synchronously cancel all pending async callbacks, and there's no way to delay deallocation
-     * of the kext other than maintaining a reference count here.
-     */
-    me->release();
+    /* Drop the outstanding I/O reference count */
+    me->decrIOReqCount(false);
 }
 
 
@@ -518,7 +519,9 @@ IOReturn coop_plausible_driver_CP210x::sendUSBDeviceRequest (IOUSBDevRequest *re
     handler->completion.parameter = handler;
 
     /* Issue our request. We unlock our mutex to avoid any chance of a dead-lock. */
-    this->retain();
+    if ((ret = this->incrIOReqCount(true)) != kIOReturnSuccess)
+        return ret;
+
     IOLockUnlock(_lock); {
         ret = _provider->GetDevice()->DeviceRequest(&handler->req, 5000, 0, &handler->completion);
     } IOLockLock(_lock);

@@ -137,8 +137,8 @@ private:
     /** If true, driver is stopping, and all internal state has been reset. */
     bool _stopping;
     
-    /** The number of outstanding asynchronous requests. This refcount is used to delay
-     * driver shutdown in the case where synchronous requests remain pending. */
+    /** The number of outstanding asynchronous requests. This refcount is used to cancel
+     * driver shutdown in the case where I/O requests remain pending. */
     size_t _ioReqCount;
 
 public:
@@ -172,7 +172,7 @@ public:
     virtual IOReturn dequeueData (UInt8 *buffer, UInt32 size, UInt32 *count, UInt32 min, void *refCon);
 
 private:
-    void incrIOReqCount (bool haveLock);
+    IOReturn incrIOReqCount (bool haveLock);
     void decrIOReqCount (bool haveLock);
 
     static void sendUSBDeviceRequestCleanup (void *target, void *parameter, IOReturn status, UInt32 bufferSizeRemaining);
